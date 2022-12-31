@@ -1,6 +1,9 @@
 #include "stdafx.h"
 #include "Plugin.h"
 #include "IExamInterface.h"
+#include "EBlackboard.h"
+#include "EBehaviorTree.h"
+#include "Behaviors.h"
 
 using namespace std;
 
@@ -17,6 +20,74 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	info.Student_FirstName = "Arne";
 	info.Student_LastName = "Six";
 	info.Student_Class = "2DAE08";
+
+	// Blackboard creation
+
+	m_pBlackboard = new Blackboard();
+	m_pBlackboard->AddData(P_PLAYERINFO, m_pInterface->Agent_GetInfo());
+	m_pBlackboard->AddData(P_WORLDINFO, m_pInterface->World_GetInfo());
+	m_pBlackboard->AddData(P_TARGETINFO, Elite::Vector2{ 0, 0 });
+	m_pBlackboard->AddData(P_INTERFACE, m_pInterface);
+	m_pBlackboard->AddData(P_SHOULDEXPLORE, m_ShouldExplore);
+	m_pBlackboard->AddData(P_HOUSES_IN_FOV, m_HousesInPOV);
+	m_pBlackboard->AddData(P_ENTITIES_IN_FOV, m_EntitiesInPOV);
+	m_pBlackboard->AddData(P_CAN_RUN, m_CanRun);
+	m_pBlackboard->AddData(P_STEERING, SteeringPlugin_Output{});
+	m_pBlackboard->AddData(P_LAST_POSITION, m_LastPosition);
+	m_pBlackboard->AddData(P_SHOULD_SWEEP_HOUSE, false);
+	m_pBlackboard->AddData(P_ACTIVE_HOUSE, HouseInfo{});
+	m_pBlackboard->AddData(P_KNOWN_HOUSES, std::vector<KnownHouse>());
+	m_pBlackboard->AddData(P_DESTINATION_REACHED, false);
+	m_pBlackboard->AddData(P_DESTINATION, Elite::Vector2{});
+	m_pBlackboard->AddData(P_IS_GOING_FOR_HOUSE, false);
+
+	// Tree creation
+	m_pBehaviorTree = new BehaviorTree(m_pBlackboard,
+		new BehaviorSelector{{
+			new BehaviorSequence{{
+				new BehaviorConditional(BT_Conditions::IsInHouse),
+				new BehaviorSelector{{
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::ShouldSweepHouse),
+						new BehaviorAction(BT_Actions::Sweep)
+					}},
+					new BehaviorSequence{{
+						new BehaviorAction(BT_Actions::ExitHouse)
+					}},
+				}},
+			}},
+			new BehaviorSelector{{
+				new BehaviorSequence{{
+					new BehaviorConditional(BT_Conditions::IsHouseInPOV),
+					new BehaviorAction(BT_Actions::Seek)
+				}},
+				new BehaviorSequence{{
+					new BehaviorConditional(BT_Conditions::IsGoingToHouse),
+					new BehaviorAction(BT_Actions::Seek)
+				}},
+			}},
+			new BehaviorSequence{{
+				new BehaviorConditional(BT_Conditions::ShouldExplore),
+				new BehaviorAction(BT_Actions::Explore),
+				new BehaviorAction(BT_Actions::Seek)
+			}},
+		}}
+	);
+
+	std::random_device rd;
+	m_Rng = std::mt19937(rd());
+
+	Elite::Vector2 dim = m_pInterface->World_GetInfo().Dimensions;
+	Elite::Vector2 org = m_pInterface->World_GetInfo().Center;
+
+	float size{ 4 };
+
+
+	m_LocationPicker = std::uniform_real_distribution<float>(0, CONFIG_RANDOM_LOCATION_COUNT);
+	m_Norm = std::uniform_real_distribution<float>(0.f, 1.f);
+
+	//
+	GenerateRandomVisitLocations();
 }
 
 //Called only once
@@ -28,7 +99,7 @@ void Plugin::DllInit()
 //Called only once
 void Plugin::DllShutdown()
 {
-	//Called wheb the plugin gets unloaded
+	//Called when the plugin gets unloaded
 }
 
 //Called only once, during initialization
@@ -48,7 +119,7 @@ void Plugin::InitGameDebugParams(GameDebugParams& params)
 	params.SpawnPurgeZonesOnMiddleClick = true;
 	params.PrintDebugMessages = true;
 	params.ShowDebugItemNames = true;
-	params.Seed = 36;
+	params.Seed = 160;
 }
 
 //Only Active in DEBUG Mode
@@ -57,152 +128,244 @@ void Plugin::Update(float dt)
 {
 	//Demo Event Code
 	//In the end your AI should be able to walk around without external input
-	if (m_pInterface->Input_IsMouseButtonUp(Elite::InputMouseButton::eLeft))
-	{
-		//Update target based on input
-		Elite::MouseData mouseData = m_pInterface->Input_GetMouseData(Elite::InputType::eMouseButton, Elite::InputMouseButton::eLeft);
-		const Elite::Vector2 pos = Elite::Vector2(static_cast<float>(mouseData.X), static_cast<float>(mouseData.Y));
-		m_Target = m_pInterface->Debug_ConvertScreenToWorld(pos);
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Space))
-	{
-		m_CanRun = true;
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Left))
-	{
-		m_AngSpeed -= Elite::ToRadians(10);
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Right))
-	{
-		m_AngSpeed += Elite::ToRadians(10);
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_G))
-	{
-		m_GrabItem = true;
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_U))
-	{
-		m_UseItem = true;
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_R))
-	{
-		m_RemoveItem = true;
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyUp(Elite::eScancode_Space))
-	{
-		m_CanRun = false;
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Delete))
-	{
-		m_pInterface->RequestShutdown();
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_KP_Minus))
-	{
-		if (m_InventorySlot > 0)
-			--m_InventorySlot;
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_KP_Plus))
-	{
-		if (m_InventorySlot < 4)
-			++m_InventorySlot;
-	}
-	else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Q))
-	{
-		ItemInfo info = {};
-		m_pInterface->Inventory_GetItem(m_InventorySlot, info);
-		std::cout << (int)info.Type << std::endl;
-	}
+	//if (m_pInterface->Input_IsMouseButtonUp(Elite::InputMouseButton::eLeft))
+	//{
+	//	//Update target based on input
+	//	Elite::MouseData mouseData = m_pInterface->Input_GetMouseData(Elite::InputType::eMouseButton, Elite::InputMouseButton::eLeft);
+	//	const Elite::Vector2 pos = Elite::Vector2(static_cast<float>(mouseData.X), static_cast<float>(mouseData.Y));
+	//	m_Target = m_pInterface->Debug_ConvertScreenToWorld(pos);
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Space))
+	//{
+	//	m_CanRun = true;
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Left))
+	//{
+	//	m_AngSpeed -= Elite::ToRadians(10);
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Right))
+	//{
+	//	m_AngSpeed += Elite::ToRadians(10);
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_G))
+	//{
+	//	m_GrabItem = true;
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_U))
+	//{
+	//	m_UseItem = true;
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_R))
+	//{
+	//	m_RemoveItem = true;
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyUp(Elite::eScancode_Space))
+	//{
+	//	m_CanRun = false;
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Delete))
+	//{
+	//	m_pInterface->RequestShutdown();
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_KP_Minus))
+	//{
+	//	if (m_InventorySlot > 0)
+	//		--m_InventorySlot;
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_KP_Plus))
+	//{
+	//	if (m_InventorySlot < 4)
+	//		++m_InventorySlot;
+	//}
+	//else if (m_pInterface->Input_IsKeyboardKeyDown(Elite::eScancode_Q))
+	//{
+	//	ItemInfo info = {};
+	//	m_pInterface->Inventory_GetItem(m_InventorySlot, info);
+	//	std::cout << (int)info.Type << std::endl;
+	//}
 }
 
 //Update
 //This function calculates the new SteeringOutput, called once per frame
 SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 {
-	auto steering = SteeringPlugin_Output();
-	
-	//Use the Interface (IAssignmentInterface) to 'interface' with the AI_Framework
+	m_HousesInPOV.clear();
+	m_EntitiesInPOV.clear();
+
+	m_pBlackboard->ChangeData(P_CAN_RUN, false);
+
+	m_HousesInPOV = GetHousesInFOV();
+	m_EntitiesInPOV = GetEntitiesInFOV();
+	m_pBlackboard->ChangeData(P_HOUSES_IN_FOV, m_HousesInPOV);
+	m_pBlackboard->ChangeData(P_ENTITIES_IN_FOV, m_EntitiesInPOV);
+
+	SteeringPlugin_Output steering{};
+
 	auto agentInfo = m_pInterface->Agent_GetInfo();
+	m_pBlackboard->ChangeData(P_PLAYERINFO, agentInfo);
 
+	m_pBehaviorTree->Update(dt);
+	m_pBlackboard->GetData(P_STEERING, steering);
 
-	//Use the navmesh to calculate the next navmesh point
-	//auto nextTargetPos = m_pInterface->NavMesh_GetClosestPathPoint(checkpointLocation);
-
-	//OR, Use the mouse target
-	auto nextTargetPos = m_pInterface->NavMesh_GetClosestPathPoint(m_Target); //Uncomment this to use mouse position as guidance
-
-	auto vHousesInFOV = GetHousesInFOV();//uses m_pInterface->Fov_GetHouseByIndex(...)
-	auto vEntitiesInFOV = GetEntitiesInFOV(); //uses m_pInterface->Fov_GetEntityByIndex(...)
-
-	for (auto& e : vEntitiesInFOV)
-	{
-		if (e.Type == eEntityType::PURGEZONE)
-		{
-			PurgeZoneInfo zoneInfo;
-			m_pInterface->PurgeZone_GetInfo(e, zoneInfo);
-			//std::cout << "Purge Zone in FOV:" << e.Location.x << ", "<< e.Location.y << "---Radius: "<< zoneInfo.Radius << std::endl;
-		}
-	}
-
-	//INVENTORY USAGE DEMO
-	//********************
-
-	if (m_GrabItem)
-	{
-		ItemInfo item;
-		//Item_Grab > When DebugParams.AutoGrabClosestItem is TRUE, the Item_Grab function returns the closest item in range
-		//Keep in mind that DebugParams are only used for debugging purposes, by default this flag is FALSE
-		//Otherwise, use GetEntitiesInFOV() to retrieve a vector of all entities in the FOV (EntityInfo)
-		//Item_Grab gives you the ItemInfo back, based on the passed EntityHash (retrieved by GetEntitiesInFOV)
-		if (m_pInterface->Item_Grab({}, item))
-		{
-			//Once grabbed, you can add it to a specific inventory slot
-			//Slot must be empty
-			m_pInterface->Inventory_AddItem(m_InventorySlot, item);
-		}
-	}
-
-	if (m_UseItem)
-	{
-		//Use an item (make sure there is an item at the given inventory slot)
-		m_pInterface->Inventory_UseItem(m_InventorySlot);
-	}
-
-	if (m_RemoveItem)
-	{
-		//Remove an item from a inventory slot
-		m_pInterface->Inventory_RemoveItem(m_InventorySlot);
-	}
-
-	//Simple Seek Behaviour (towards Target)
-	steering.LinearVelocity = nextTargetPos - agentInfo.Position; //Desired Velocity
-	steering.LinearVelocity.Normalize(); //Normalize Desired Velocity
-	steering.LinearVelocity *= agentInfo.MaxLinearSpeed; //Rescale to Max Speed
-
-	if (Distance(nextTargetPos, agentInfo.Position) < 2.f)
-	{
-		steering.LinearVelocity = Elite::ZeroVector2;
-	}
-
-	//steering.AngularVelocity = m_AngSpeed; //Rotate your character to inspect the world while walking
-	steering.AutoOrient = true; //Setting AutoOrient to TRue overrides the AngularVelocity
-
-	steering.RunMode = m_CanRun; //If RunMode is True > MaxLinSpd is increased for a limited time (till your stamina runs out)
-
-	//SteeringPlugin_Output is works the exact same way a SteeringBehaviour output
-
-//@End (Demo Purposes)
-	m_GrabItem = false; //Reset State
+	m_GrabItem = false;
 	m_UseItem = false;
 	m_RemoveItem = false;
 
+	// Update house sweep timer
+	std::vector<KnownHouse> knownHouses{};
+	m_pBlackboard->GetData(P_KNOWN_HOUSES, knownHouses);
+
+	for (KnownHouse house : knownHouses)
+	{
+		house.lastSweepTime += dt;
+	}
+
+	m_pBlackboard->ChangeData(P_KNOWN_HOUSES, knownHouses);
+
+
+	SweepFullMap();
+
 	return steering;
+
+//	auto steering = SteeringPlugin_Output();
+//	
+//	//Use the Interface (IAssignmentInterface) to 'interface' with the AI_Framework
+//	auto agentInfo = m_pInterface->Agent_GetInfo();
+//
+//
+//	//Use the navmesh to calculate the next navmesh point
+//	//auto nextTargetPos = m_pInterface->NavMesh_GetClosestPathPoint(checkpointLocation);
+//
+//	//OR, Use the mouse target
+//	auto nextTargetPos = m_pInterface->NavMesh_GetClosestPathPoint(m_Target); //Uncomment this to use mouse position as guidance
+//
+//	m_HousesInPOV = GetHousesInFOV();//uses m_pInterface->Fov_GetHouseByIndex(...)
+//	m_EntitiesInPOV = GetEntitiesInFOV(); //uses m_pInterface->Fov_GetEntityByIndex(...)
+//
+//	for (auto& e : m_EntitiesInPOV)
+//	{
+//		if (e.Type == eEntityType::PURGEZONE)
+//		{
+//			PurgeZoneInfo zoneInfo;
+//			m_pInterface->PurgeZone_GetInfo(e, zoneInfo);
+//			//std::cout << "Purge Zone in FOV:" << e.Location.x << ", "<< e.Location.y << "---Radius: "<< zoneInfo.Radius << std::endl;
+//		}
+//	}
+//
+//	//INVENTORY USAGE DEMO
+//	//********************
+//
+//	if (m_GrabItem)
+//	{
+//		ItemInfo item;
+//		//Item_Grab > When DebugParams.AutoGrabClosestItem is TRUE, the Item_Grab function returns the closest item in range
+//		//Keep in mind that DebugParams are only used for debugging purposes, by default this flag is FALSE
+//		//Otherwise, use GetEntitiesInFOV() to retrieve a vector of all entities in the FOV (EntityInfo)
+//		//Item_Grab gives you the ItemInfo back, based on the passed EntityHash (retrieved by GetEntitiesInFOV)
+//		if (m_pInterface->Item_Grab({}, item))
+//		{
+//			//Once grabbed, you can add it to a specific inventory slot
+//			//Slot must be empty
+//			m_pInterface->Inventory_AddItem(m_InventorySlot, item);
+//		}
+//	}
+//
+//	if (m_UseItem)
+//	{
+//		//Use an item (make sure there is an item at the given inventory slot)
+//		m_pInterface->Inventory_UseItem(m_InventorySlot);
+//	}
+//
+//	if (m_RemoveItem)
+//	{
+//		//Remove an item from a inventory slot
+//		m_pInterface->Inventory_RemoveItem(m_InventorySlot);
+//	}
+//
+//	//Simple Seek Behaviour (towards Target)
+//	steering.LinearVelocity = nextTargetPos - agentInfo.Position; //Desired Velocity
+//	steering.LinearVelocity.Normalize(); //Normalize Desired Velocity
+//	steering.LinearVelocity *= agentInfo.MaxLinearSpeed; //Rescale to Max Speed
+//
+//	if (Distance(nextTargetPos, agentInfo.Position) < 2.f)
+//	{
+//		steering.LinearVelocity = Elite::ZeroVector2;
+//	}
+//
+//	//steering.AngularVelocity = m_AngSpeed; //Rotate your character to inspect the world while walking
+//	steering.AutoOrient = true; //Setting AutoOrient to TRue overrides the AngularVelocity
+//
+//	steering.RunMode = m_CanRun; //If RunMode is True > MaxLinSpd is increased for a limited time (till your stamina runs out)
+//
+//	//SteeringPlugin_Output is works the exact same way a SteeringBehaviour output
+//
+////@End (Demo Purposes)
+}
+
+void Plugin::SweepFullMap()
+{
+	// Exploration section
+	auto agentInfo = m_pInterface->Agent_GetInfo();
+
+	Elite::Vector2 destination{};
+
+	bool dataFound =
+		m_pBlackboard->GetData(P_DESTINATION, destination);
+
+	if (Elite::Distance(agentInfo.Position, destination) <= 5.f)
+	{
+		// Pick random location
+		m_pBlackboard->ChangeData(P_DESTINATION, m_RandomLocationsToVisit[m_LocationPicker(m_Rng)]);
+	}
+}
+
+void Plugin::GenerateRandomVisitLocations()
+{
+
+	/************************************************************************/
+	/* Algorithm to sweep from inside to outside                            */
+	/************************************************************************/
+	WorldInfo worldInfo = m_pInterface->World_GetInfo();
+
+	float worldMapPercentage = .3f;
+
+	/*while (m_RandomLocationsToVisit.size() < CONFIG_RANDOM_LOCATION_COUNT)
+	{
+		float x = cos(m_Norm(m_Rng)) * worldInfo.Dimensions.x * worldMapPercentage;
+		float y = sin(m_Norm(m_Rng)) * worldInfo.Dimensions.y * worldMapPercentage;
+
+		m_RandomLocationsToVisit.push_back(Elite::Vector2(x, y));
+	}*/
+
+	for (uint32_t i{0}; i <= 360; i += 36)
+	{
+		float x = cos((float)i) * worldInfo.Dimensions.x * worldMapPercentage;
+		float y = sin((float)i) * worldInfo.Dimensions.y * worldMapPercentage;
+
+		m_RandomLocationsToVisit.push_back(Elite::Vector2(x, y));
+	}
 }
 
 //This function should only be used for rendering debug elements
 void Plugin::Render(float dt) const
 {
-	//This Render function should only contain calls to Interface->Draw_... functions
-	m_pInterface->Draw_SolidCircle(m_Target, .7f, { 0,0 }, { 1, 0, 0 });
+	Elite::Vector2 targetPos{};
+	AgentInfo agentInfo{};
+	HouseInfo houseInfo{};
+
+	m_pBlackboard->GetData(P_TARGETINFO, targetPos);
+	m_pInterface->Draw_SolidCircle(targetPos, .7f, { 0,0 }, { 1, 0, 0 });
+
+	m_pBlackboard->GetData(P_ACTIVE_HOUSE, houseInfo);
+	m_pInterface->Draw_SolidCircle(houseInfo.Center, .7f, { 0,0 }, { 1, 0, 1 });
+
+	m_pBlackboard->GetData(P_PLAYERINFO, agentInfo);
+	m_pInterface->Draw_Segment(agentInfo.Position, targetPos, { 0,0,0 });
+
+	for (auto loc : m_RandomLocationsToVisit)
+	{
+		m_pInterface->Draw_Segment(loc, {0,0}, { 0,0,0 });
+	}
 }
 
 vector<HouseInfo> Plugin::GetHousesInFOV() const

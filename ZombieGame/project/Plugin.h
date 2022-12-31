@@ -1,9 +1,44 @@
 #pragma once
+
+#include <memory>
+
 #include "IExamPlugin.h"
 #include "Exam_HelperStructs.h"
 
+/************************************************************************/
+/* String macros														*/
+/************************************************************************/
+#define P_PLAYERINFO "playerInfo"
+#define P_WORLDINFO "worldInfo"
+#define P_TARGETINFO "targetInfo"
+#define P_INTERFACE "interface"
+#define P_SHOULDEXPLORE "shouldExplore" 
+#define P_HOUSES_IN_FOV "housesFOV"
+#define P_ENTITIES_IN_FOV "entitiesPOV"
+#define P_CAN_RUN "canRun"
+#define P_STEERING "steering"
+#define P_LAST_POSITION "lastPosition"
+#define P_SHOULD_SWEEP_HOUSE "shouldSweepHouse"
+#define P_ACTIVE_HOUSE "activeHouse"
+#define P_KNOWN_HOUSES "knownHouses"
+#define P_DESTINATION_REACHED "destinationReached"
+#define P_DESTINATION "destination"
+#define P_IS_GOING_FOR_HOUSE "isGoingForHouse"
+
+#define CONFIG_SWEEP_MAX_TIMEOUT 50
+#define CONFIG_WANDER_ANGLE 45
+#define CONFIG_RANDOM_LOCATION_COUNT 10
+
 class IBaseInterface;
 class IExamInterface;
+class Blackboard;
+class BehaviorTree;
+
+struct KnownHouse
+{
+	Elite::Vector2 housePosition{};
+	float lastSweepTime{};
+};
 
 class Plugin :public IExamPlugin
 {
@@ -33,6 +68,32 @@ private:
 	bool m_UseItem = false; //Demo purpose
 	bool m_RemoveItem = false; //Demo purpose
 	float m_AngSpeed = 0.f; //Demo purpose
+
+	/************************************************************************/
+	/* Custom properties													 */
+	/************************************************************************/
+	BehaviorTree* m_pBehaviorTree;
+	Blackboard* m_pBlackboard;
+
+	bool m_ShouldExplore{ true };
+
+	Elite::Vector2 m_LastPosition{};
+
+	// Random
+	std::mt19937 m_Rng;
+	std::uniform_real_distribution<float> m_LocationPicker;
+	std::uniform_real_distribution<float> m_Norm;
+
+	std::vector<HouseInfo> m_HousesInPOV{};
+	std::vector<EntityInfo> m_EntitiesInPOV{};
+
+	std::vector<Elite::Vector2> m_RandomLocationsToVisit{};
+
+	/************************************************************************/
+	/* Custom functions                                                      */
+	/************************************************************************/
+	void SweepFullMap();
+	void GenerateRandomVisitLocations();
 
 	UINT m_InventorySlot = 0;
 };
