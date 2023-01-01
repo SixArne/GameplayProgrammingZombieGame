@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <array>
 
 #include "IExamPlugin.h"
 #include "Exam_HelperStructs.h"
@@ -18,16 +19,20 @@
 #define P_CAN_RUN "canRun"
 #define P_STEERING "steering"
 #define P_LAST_POSITION "lastPosition"
-#define P_SHOULD_SWEEP_HOUSE "shouldSweepHouse"
 #define P_ACTIVE_HOUSE "activeHouse"
 #define P_KNOWN_HOUSES "knownHouses"
 #define P_DESTINATION_REACHED "destinationReached"
 #define P_DESTINATION "destination"
 #define P_IS_GOING_FOR_HOUSE "isGoingForHouse"
+#define P_INVENTORY "inventory"
+#define P_HOUSE_TO_SWEEP "sweepHouse"
 
 #define CONFIG_SWEEP_MAX_TIMEOUT 50
 #define CONFIG_WANDER_ANGLE 45
 #define CONFIG_RANDOM_LOCATION_COUNT 10
+#define CONFIG_MIN_ALLOWED_HEALTH 2.0
+#define CONFIG_MAX_HOUSE_SWEEP_SPOTS 4
+#define CONFIG_HOUSE_WALL_WIDTH 5
 
 class IBaseInterface;
 class IExamInterface;
@@ -43,7 +48,7 @@ struct KnownHouse
 class Plugin :public IExamPlugin
 {
 public:
-	Plugin() {};
+	Plugin() {}; 
 	virtual ~Plugin() {};
 
 	void Initialize(IBaseInterface* pInterface, PluginInfo& info) override;

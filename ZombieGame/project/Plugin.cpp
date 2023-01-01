@@ -4,6 +4,7 @@
 #include "EBlackboard.h"
 #include "EBehaviorTree.h"
 #include "Behaviors.h"
+#include "Structs.h"
 
 using namespace std;
 
@@ -34,16 +35,50 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	m_pBlackboard->AddData(P_CAN_RUN, m_CanRun);
 	m_pBlackboard->AddData(P_STEERING, SteeringPlugin_Output{});
 	m_pBlackboard->AddData(P_LAST_POSITION, m_LastPosition);
-	m_pBlackboard->AddData(P_SHOULD_SWEEP_HOUSE, false);
 	m_pBlackboard->AddData(P_ACTIVE_HOUSE, HouseInfo{});
 	m_pBlackboard->AddData(P_KNOWN_HOUSES, std::vector<KnownHouse>());
 	m_pBlackboard->AddData(P_DESTINATION_REACHED, false);
 	m_pBlackboard->AddData(P_DESTINATION, Elite::Vector2{});
 	m_pBlackboard->AddData(P_IS_GOING_FOR_HOUSE, false);
+	m_pBlackboard->AddData(P_INVENTORY, Inventory{});
+	m_pBlackboard->AddData(P_HOUSE_TO_SWEEP, SweepHouse{});
 
 	// Tree creation
 	m_pBehaviorTree = new BehaviorTree(m_pBlackboard,
 		new BehaviorSelector{{
+			/************************************************************************/
+			/* Items																*/
+			/************************************************************************/
+			new BehaviorSequence{{
+				new BehaviorConditional(BT_Conditions::SeesItem),
+				new BehaviorSelector{{
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::HasInventorySlot),
+						new BehaviorAction(BT_Actions::Pickup),
+						new BehaviorAction(BT_Actions::Seek)
+					}},
+					new BehaviorSequence{{
+						new BehaviorAction(BT_Actions::Drop),
+						new BehaviorAction(BT_Actions::Pickup)
+					}},
+					/*new BehaviorSequence{{
+						new BehaviorAction(BT_Actions::AddToMemory)
+					}},*/
+				}},
+			}},
+			/************************************************************************/
+			/* Garbage																*/
+			/************************************************************************/
+			/*new BehaviorSequence{{
+				new BehaviorConditional(BT_Conditions::SeesGarbage),
+				new BehaviorConditional(BT_Conditions::HasInventorySlot),
+				new BehaviorAction(BT_Actions::Pickup),
+				new BehaviorAction(BT_Actions::Drop)
+			}},*/
+			
+			/************************************************************************/
+			/* Sweeping house														*/
+			/************************************************************************/
 			new BehaviorSequence{{
 				new BehaviorConditional(BT_Conditions::IsInHouse),
 				new BehaviorSelector{{
@@ -56,6 +91,9 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 					}},
 				}},
 			}},
+			/************************************************************************/
+			/* House detection														*/
+			/************************************************************************/
 			new BehaviorSelector{{
 				new BehaviorSequence{{
 					new BehaviorConditional(BT_Conditions::IsHouseInPOV),
@@ -66,6 +104,9 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 					new BehaviorAction(BT_Actions::Seek)
 				}},
 			}},
+			/************************************************************************/
+			/* Exploration                                                          */
+			/************************************************************************/
 			new BehaviorSequence{{
 				new BehaviorConditional(BT_Conditions::ShouldExplore),
 				new BehaviorAction(BT_Actions::Explore),
@@ -365,6 +406,15 @@ void Plugin::Render(float dt) const
 	for (auto loc : m_RandomLocationsToVisit)
 	{
 		m_pInterface->Draw_Segment(loc, {0,0}, { 0,0,0 });
+	}
+
+	SweepHouse sweepHouse{};
+
+	m_pBlackboard->GetData(P_HOUSE_TO_SWEEP, sweepHouse);
+
+	for (auto loc : sweepHouse.sweepLocations)
+	{
+		m_pInterface->Draw_SolidCircle(loc, .7f, { 0,0 }, { 0, 0, 1 });
 	}
 }
 
