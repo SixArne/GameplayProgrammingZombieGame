@@ -95,18 +95,141 @@ struct Inventory
 		case eItemType::MEDKIT:
 
 			{
+				int newMedkitCount = examInterface->Medkit_GetHealth(itemToConsider);
 				auto hasItemOfTypeIt = HasTypeOfInInventory(itemToConsider.Type);
+
+				// If contained get ammo and compare
 				if (hasItemOfTypeIt != items.end())
 				{
-					return items.size();
+					int currentMedkitCount = examInterface->Medkit_GetHealth(*hasItemOfTypeIt);
+
+					if (newMedkitCount >= currentMedkitCount)
+					{
+						return hasItemOfTypeIt - items.begin();
+					}
 				}
+
+				return items.size();
 			}
 
 			break;
 
+		case eItemType::GARBAGE:
+			
+			{
+				
+			}
+			
+			break;
 		default:
 			break;
 		}
+	}
+
+	bool IsNewPickupBetterThanInventory(IExamInterface* examInterface, ItemInfo itemToConsider)
+	{
+		switch (itemToConsider.Type)
+		{
+		case eItemType::PISTOL:
+
+		{
+			int newAmmoCount = examInterface->Weapon_GetAmmo(itemToConsider);
+			auto hasItemOfTypeIt = HasTypeOfInInventory(itemToConsider.Type);
+
+			// If contained get ammo and compare
+			if (hasItemOfTypeIt != items.end())
+			{
+				int currentAmmo = examInterface->Weapon_GetAmmo(*hasItemOfTypeIt);
+
+				if (newAmmoCount > currentAmmo)
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		break;
+		case eItemType::SHOTGUN:
+
+		{
+			int newAmmoCount = examInterface->Weapon_GetAmmo(itemToConsider);
+			auto hasItemOfTypeIt = HasTypeOfInInventory(itemToConsider.Type);
+
+			// If contained get ammo and compare
+			if (hasItemOfTypeIt != items.end())
+			{
+				int currentAmmo = examInterface->Weapon_GetAmmo(*hasItemOfTypeIt);
+
+				if (newAmmoCount > currentAmmo)
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		break;
+
+		case eItemType::FOOD:
+
+		{
+			int newFoodCount = examInterface->Food_GetEnergy(itemToConsider);
+			auto hasItemOfTypeIt = HasTypeOfInInventory(itemToConsider.Type);
+
+			// If contained get ammo and compare
+			if (hasItemOfTypeIt != items.end())
+			{
+				int currentFood = examInterface->Food_GetEnergy(*hasItemOfTypeIt);
+
+				if (newFoodCount > currentFood)
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		break;
+
+		case eItemType::MEDKIT:
+
+		{
+			int newMedkitCount = examInterface->Medkit_GetHealth(itemToConsider);
+			auto hasItemOfTypeIt = HasTypeOfInInventory(itemToConsider.Type);
+
+			// If contained get ammo and compare
+			if (hasItemOfTypeIt != items.end())
+			{
+				int currentMedkitCount = examInterface->Medkit_GetHealth(*hasItemOfTypeIt);
+
+				if (newMedkitCount > currentMedkitCount)
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		break;
+
+		default:
+			return false;
+			break;
+		}
+	}
+
+	UINT GetSameTypeItemSlot(eItemType itemType)
+	{
+		auto pistolIt = std::find_if(items.begin(), items.end(), [itemType](ItemInfo item) {
+			return item.Type == itemType;
+			});
+
+		return pistolIt - items.begin();
 	}
 
 	bool ShouldPickupItem(IExamInterface* examInterface, ItemInfo itemToConsider)
@@ -117,8 +240,10 @@ struct Inventory
 		// Already has item
 		if (hasItemTypeIf != items.end())
 		{
-			return false;
+			return IsNewPickupBetterThanInventory(examInterface, itemToConsider);
 		}
+
+		return true;
 	}
 
 	std::array<ItemInfo,5>::iterator HasTypeOfInInventory(eItemType type)

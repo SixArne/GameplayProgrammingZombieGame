@@ -46,6 +46,16 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	// Tree creation
 	m_pBehaviorTree = new BehaviorTree(m_pBlackboard,
 		new BehaviorSelector{{
+
+			/************************************************************************/
+			/* Garbage																*/
+			/************************************************************************/
+			new BehaviorSequence{{
+				new BehaviorConditional(BT_Conditions::SeesGarbage),
+				new BehaviorConditional(BT_Conditions::HasInventorySlot),
+				new BehaviorAction(BT_Actions::Pickup),
+				new BehaviorAction(BT_Actions::Drop)
+			}},
 			/************************************************************************/
 			/* Items																*/
 			/************************************************************************/
@@ -66,15 +76,7 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 					}},*/
 				}},
 			}},
-			/************************************************************************/
-			/* Garbage																*/
-			/************************************************************************/
-			/*new BehaviorSequence{{
-				new BehaviorConditional(BT_Conditions::SeesGarbage),
-				new BehaviorConditional(BT_Conditions::HasInventorySlot),
-				new BehaviorAction(BT_Actions::Pickup),
-				new BehaviorAction(BT_Actions::Drop)
-			}},*/
+			
 			
 			/************************************************************************/
 			/* Sweeping house														*/
@@ -160,7 +162,7 @@ void Plugin::InitGameDebugParams(GameDebugParams& params)
 	params.SpawnPurgeZonesOnMiddleClick = true;
 	params.PrintDebugMessages = true;
 	params.ShowDebugItemNames = true;
-	params.Seed = 160;
+	params.Seed = 169;
 }
 
 //Only Active in DEBUG Mode

@@ -39,19 +39,35 @@ namespace BT_Actions
 			ItemInfo itemInfo{};
 			examInterface->Item_GetInfo(item, itemInfo);
 
+			// Garbage is handled by different stage
 			if (itemInfo.Type != eItemType::GARBAGE)
 			{
-				const auto maxGrabRange = agentInfo.GrabRange;
-				const auto grabRange = Elite::DistanceSquared(itemInfo.Location, agentInfo.Position);
-
-				// Don't pick up massive amounts of food
+				// Determine if its worth to pick up item
 				if (!inventory.ShouldPickupItem(examInterface, itemInfo))
 				{
-					return BehaviorState::Failure;
+					return BehaviorState::Running;
+				}
+				else 
+				{
+					// Delete less amount item
+					UINT slot = inventory.GetSameTypeItemSlot(itemInfo.Type);
+
+					// If slot is valid
+					if (slot != inventory.slots.size())
+					{
+						// Remove lower grade item
+						inventory.RemoveSlot(slot);
+						examInterface->Inventory_RemoveItem(slot);
+						blackboard->ChangeData(P_INVENTORY, inventory);
+					}
 				}
 			
-				if (grabRange < maxGrabRange && examInterface->Item_Grab({}, itemInfo))
+				// Grab item, if within range
+				const auto maxGrabRange = agentInfo.GrabRange;
+				const auto grabRange = Elite::DistanceSquared(itemInfo.Location, agentInfo.Position);
+				if (grabRange < maxGrabRange * maxGrabRange && examInterface->Item_Grab({}, itemInfo))
 				{
+					// Add item
 					examInterface->Inventory_AddItem(slot, itemInfo);
 
 					// Add item and occupy slot
@@ -62,8 +78,27 @@ namespace BT_Actions
 				}
 				else
 				{
+					// Not close so set location and let seek handle movement
 					targetInfo = itemInfo.Location;
 				}
+			}
+			// Garbage
+			else
+			{
+				// Grab item, if within range
+				const auto maxGrabRange = agentInfo.GrabRange;
+				const auto grabRange = Elite::DistanceSquared(itemInfo.Location, agentInfo.Position);
+				if (grabRange < maxGrabRange * maxGrabRange && examInterface->Item_Grab({}, itemInfo))
+				{
+					// Add item
+					examInterface->Inventory_AddItem(slot, itemInfo);
+
+					// Add item and occupy slot
+					inventory.FillSlot(slot, itemInfo);
+					blackboard->ChangeData(P_INVENTORY, inventory);
+				}
+
+				return BehaviorState::Success;
 			}
 		}
 
@@ -89,6 +124,18 @@ namespace BT_Actions
 		if (!dataFound)
 		{
 			return BehaviorState::Failure;
+		}
+
+		// Remove any garbage collected
+		for (size_t i{}; i < 5; i++)
+		{
+			if (inventory.items[i].Type == eItemType::GARBAGE)
+			{
+				inventory.RemoveSlot(i);
+				examInterface->Inventory_RemoveItem(i);
+
+				blackboard->ChangeData(P_INVENTORY, inventory);
+			}
 		}
 
 		for (auto& item : entities)
@@ -436,6 +483,29 @@ namespace BT_Conditions
 
 	bool SeesGarbage(Blackboard* blackboard)
 	{
+		std::vector<EntityInfo> entities{};
+		IExamInterface* examInterface{};
+
+		bool dataFound =
+			blackboard->GetData(P_ENTITIES_IN_FOV, entities) &&
+			blackboard->GetData(P_INTERFACE, examInterface);
+
+		if (!dataFound || entities.size() == 0)
+		{
+			return false;
+		}
+
+		for (auto entity : entities)
+		{
+			ItemInfo itemInfo{};
+			examInterface->Item_GetInfo(entity, itemInfo);
+
+			if (itemInfo.Type == eItemType::GARBAGE)
+			{
+				return true;
+			}
+		}
+
 		return false;
 	}
 
