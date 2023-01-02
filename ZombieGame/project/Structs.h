@@ -229,7 +229,14 @@ struct Inventory
 			return item.Type == itemType;
 			});
 
-		return pistolIt - items.begin();
+		auto id = pistolIt - items.begin();
+
+		if (id < slots.size() && slots[id] == false)
+		{
+			return items.size();
+		}
+
+		return id;
 	}
 
 	bool ShouldPickupItem(IExamInterface* examInterface, ItemInfo itemToConsider)
@@ -251,6 +258,14 @@ struct Inventory
 		auto pistolIt = std::find_if(items.begin(), items.end(), [type](ItemInfo item) {
 			return item.Type == type;
 		});
+
+		// default is pistol so we also need to check if the slot is actually filled;
+		auto slotId = pistolIt - items.begin();
+		if (slotId < slots.size() && slots[slotId] == false)
+		{
+			// invalid index gets caught
+			return items.end();
+		}
 
 		return pistolIt;
 	}

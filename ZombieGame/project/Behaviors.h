@@ -7,16 +7,94 @@
 
 namespace BT_Actions
 {
+	BehaviorState AddHouseToVisited(Blackboard* blackboard)
+	{
+		std::vector<KnownHouse> knownHouses{};
+		HouseInfo activeHouse{};
+	
+		blackboard->GetData(P_ACTIVE_HOUSE, activeHouse);
+		blackboard->GetData(P_KNOWN_HOUSES, knownHouses);
+
+		knownHouses.push_back(KnownHouse{ activeHouse.Center, 0.f });
+
+		// update blackboard
+		blackboard->ChangeData(P_KNOWN_HOUSES, knownHouses);
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState Face(Blackboard* blackboard)
+	{
+		Elite::Vector2 target{};
+		AgentInfo playerInfo{};
+
+		blackboard->GetData(P_TARGETINFO, target);
+		blackboard->GetData(P_PLAYERINFO, playerInfo);
+
+		SteeringPlugin_Output steering{};
+
+		auto targetDir = target - playerInfo.Position;
+		auto angleTo = atan2f(targetDir.y, targetDir.x) + float(E_PI_2);
+		auto angleFrom = atan2f(sinf(playerInfo.Orientation), cosf(playerInfo.Orientation));
+		auto deltaAngle = angleTo - angleFrom;
+
+		auto playerNormal = Elite::Vector2(cos(playerInfo.Orientation), sin(playerInfo.Orientation));
+		auto targetNormal = targetDir.GetNormalized();
+		auto direction = Elite::Cross(targetNormal, playerNormal);
+
+		if (direction < 0)
+		{
+			direction = 1.f;
+		}
+		else
+		{
+			direction = -1.f;
+		}
+
+		steering.LinearVelocity = Elite::Vector2{0.f, 0.f};
+		steering.AngularVelocity = deltaAngle * CONFIG_TURN_SPEED * direction;
+		steering.AutoOrient = false;
+
+		blackboard->ChangeData(P_STEERING, steering);
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState SetAsTarget(Blackboard* blackboard)
+	{
+		std::vector<EnemyInfo>* enemies{};
+
+		blackboard->GetData(P_ENEMIES_IN_FOV, enemies);
+
+		if (enemies->size() <= 0)
+		{
+			return BehaviorState::Failure;
+		}
+
+		blackboard->ChangeData(P_TARGETINFO, enemies->front().Location);
+		return BehaviorState::Success;
+	}
+
+	BehaviorState SetRunAsTarget(Blackboard* blackboard)
+	{
+		Elite::Vector2 destination{};
+
+		blackboard->GetData(P_DESTINATION, destination);
+		blackboard->ChangeData(P_TARGETINFO, destination);
+
+		return BehaviorState::Success;
+	}
+
 	BehaviorState Pickup(Blackboard* blackboard)
 	{
-		std::vector<EntityInfo> entities{};
+		std::vector<EntityInfo>* items{};
 		IExamInterface* examInterface{};
 		AgentInfo agentInfo{};
 		Inventory inventory{};
 		Elite::Vector2 targetInfo{};
 
 		bool dataFound =
-			blackboard->GetData(P_ENTITIES_IN_FOV, entities) &&
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
 			blackboard->GetData(P_INTERFACE, examInterface) &&
 			blackboard->GetData(P_INVENTORY, inventory) &&
 			blackboard->GetData(P_PLAYERINFO, agentInfo) &&
@@ -34,10 +112,13 @@ namespace BT_Actions
 			return BehaviorState::Failure;
 		}
 
-		for (auto& item : entities)
+		for (auto& item : *items)
 		{
+			EntityInfo entityToGrab{};
+
 			ItemInfo itemInfo{};
 			examInterface->Item_GetInfo(item, itemInfo);
+
 
 			// Garbage is handled by different stage
 			if (itemInfo.Type != eItemType::GARBAGE)
@@ -47,7 +128,7 @@ namespace BT_Actions
 				{
 					return BehaviorState::Running;
 				}
-				else 
+				else
 				{
 					// Delete less amount item
 					UINT slot = inventory.GetSameTypeItemSlot(itemInfo.Type);
@@ -61,25 +142,35 @@ namespace BT_Actions
 						blackboard->ChangeData(P_INVENTORY, inventory);
 					}
 				}
-			
+
 				// Grab item, if within range
 				const auto maxGrabRange = agentInfo.GrabRange;
-				const auto grabRange = Elite::DistanceSquared(itemInfo.Location, agentInfo.Position);
-				if (grabRange < maxGrabRange * maxGrabRange && examInterface->Item_Grab({}, itemInfo))
+				const auto grabRange = Elite::DistanceSquared(item.Location, agentInfo.Position);
+
+				if (grabRange < maxGrabRange * maxGrabRange)
 				{
+					std::cout << "picking item with hash: " << itemInfo.ItemHash << std::endl;
+					if (const auto canGrab = examInterface->Item_Grab(item, itemInfo))
+					{
+						if (!canGrab)
+						{
+							std::cout << "error grabbing item" << std::endl;
+						}
+					}
+
 					// Add item
 					examInterface->Inventory_AddItem(slot, itemInfo);
 
 					// Add item and occupy slot
 					inventory.FillSlot(slot, itemInfo);
 					blackboard->ChangeData(P_INVENTORY, inventory);
-				
+
 					return BehaviorState::Success;
 				}
 				else
 				{
 					// Not close so set location and let seek handle movement
-					targetInfo = itemInfo.Location;
+					targetInfo = item.Location;
 				}
 			}
 			// Garbage
@@ -88,7 +179,7 @@ namespace BT_Actions
 				// Grab item, if within range
 				const auto maxGrabRange = agentInfo.GrabRange;
 				const auto grabRange = Elite::DistanceSquared(itemInfo.Location, agentInfo.Position);
-				if (grabRange < maxGrabRange * maxGrabRange && examInterface->Item_Grab({}, itemInfo))
+				if (grabRange < maxGrabRange * maxGrabRange && examInterface->Item_Grab(item, itemInfo))
 				{
 					// Add item
 					examInterface->Inventory_AddItem(slot, itemInfo);
@@ -108,14 +199,14 @@ namespace BT_Actions
 
 	BehaviorState Drop(Blackboard* blackboard)
 	{
-		std::vector<EntityInfo> entities{};
+		std::vector<EntityInfo>* items{};
 		IExamInterface* examInterface{};
 		AgentInfo agentInfo{};
 		Inventory inventory{};
 		Elite::Vector2 targetInfo{};
 
 		bool dataFound =
-			blackboard->GetData(P_ENTITIES_IN_FOV, entities) &&
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
 			blackboard->GetData(P_INTERFACE, examInterface) &&
 			blackboard->GetData(P_INVENTORY, inventory) &&
 			blackboard->GetData(P_PLAYERINFO, agentInfo) &&
@@ -138,11 +229,10 @@ namespace BT_Actions
 			}
 		}
 
-		for (auto& item : entities)
+		for (auto& entityInfo : *items)
 		{
 			ItemInfo itemInfo{};
-			examInterface->Item_GetInfo(item, itemInfo);
-
+			examInterface->Item_GetInfo(entityInfo, itemInfo);
 			UINT slot = inventory.DetermineUselessItemSlot(examInterface, itemInfo);
 
 			if (slot != inventory.slots.size())
@@ -166,12 +256,10 @@ namespace BT_Actions
 		AgentInfo agentInfo{};
 		IExamInterface* pluginInterface{};
 		SteeringPlugin_Output output{};
-		bool canRun{};
 
 		bool dataFound = blackboard->GetData(P_TARGETINFO, targetPos) &&
 			blackboard->GetData(P_PLAYERINFO, agentInfo) &&
-			blackboard->GetData(P_INTERFACE, pluginInterface) &&
-			blackboard->GetData(P_CAN_RUN, canRun);
+			blackboard->GetData(P_INTERFACE, pluginInterface);
 
 		if (!dataFound)
 		{
@@ -180,7 +268,7 @@ namespace BT_Actions
 
 		targetPos = pluginInterface->NavMesh_GetClosestPathPoint(targetPos);
 
-		output.RunMode = canRun;
+		output.RunMode = false;
 		output.LinearVelocity = targetPos - agentInfo.Position;
 		output.LinearVelocity.Normalize();
 		output.LinearVelocity *= agentInfo.MaxLinearSpeed;
@@ -273,12 +361,10 @@ namespace BT_Actions
 		AgentInfo agentInfo{};
 		IExamInterface* pluginInterface{};
 		SteeringPlugin_Output output{};
-		bool canRun{};
 
 		bool dataFound = blackboard->GetData(P_DESTINATION, targetPos) &&
 			blackboard->GetData(P_PLAYERINFO, agentInfo) &&
-			blackboard->GetData(P_INTERFACE, pluginInterface) &&
-			blackboard->GetData(P_CAN_RUN, canRun);
+			blackboard->GetData(P_INTERFACE, pluginInterface);
 
 		if (!dataFound)
 		{
@@ -287,7 +373,7 @@ namespace BT_Actions
 
 		targetPos = pluginInterface->NavMesh_GetClosestPathPoint(targetPos);
 
-		output.RunMode = canRun;
+		output.RunMode = false;
 		output.LinearVelocity = targetPos - agentInfo.Position;
 		output.LinearVelocity.Normalize();
 		output.LinearVelocity *= agentInfo.MaxLinearSpeed;
@@ -296,6 +382,162 @@ namespace BT_Actions
 		blackboard->ChangeData(P_SHOULDEXPLORE, true);
 		blackboard->ChangeData(P_IS_GOING_FOR_HOUSE, false);
 
+		return BehaviorState::Success;
+	}
+
+	BehaviorState Heal(Blackboard* blackboard) 
+	{
+		Inventory inventory{};
+		AgentInfo playerInfo{};
+		IExamInterface* examInterface{};
+
+		bool hasData = blackboard->GetData(P_PLAYERINFO, playerInfo)
+			&& blackboard->GetData(P_INVENTORY, inventory)
+			&& blackboard->GetData(P_INTERFACE, examInterface);
+
+		// no need to check validation (CanHeal did that already)
+		auto foundIt = inventory.HasTypeOfInInventory(eItemType::MEDKIT);
+		UINT slot = foundIt - inventory.items.begin();
+
+		// Write data to interface and blackboard
+		inventory.RemoveSlot(slot);
+		examInterface->Inventory_UseItem(slot);
+		examInterface->Inventory_RemoveItem(slot);
+		blackboard->ChangeData(P_INVENTORY, inventory);
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState Eat(Blackboard* blackboard)
+	{
+		Inventory inventory{};
+		AgentInfo playerInfo{};
+		IExamInterface* examInterface{};
+
+		bool hasData = blackboard->GetData(P_PLAYERINFO, playerInfo)
+			&& blackboard->GetData(P_INVENTORY, inventory)
+			&& blackboard->GetData(P_INTERFACE, examInterface);
+
+		// no need to check validation (CanHeal did that already)
+		auto foundIt = inventory.HasTypeOfInInventory(eItemType::FOOD);
+		UINT slot = foundIt - inventory.items.begin();
+
+		// Write data to interface and blackboard
+		inventory.RemoveSlot(slot);
+		examInterface->Inventory_UseItem(slot);
+		examInterface->Inventory_RemoveItem(slot);
+		blackboard->ChangeData(P_INVENTORY, inventory);
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState FaceZombie(Blackboard* blackboard)
+	{
+		AgentInfo playerInfo{};
+		IExamInterface* examInterface{};
+		Elite::Vector2 zombie{};
+		SteeringPlugin_Output output{};
+
+		bool hasData = blackboard->GetData(P_ZOMBIE_TARGET, zombie) &&
+			blackboard->GetData(P_PLAYERINFO, playerInfo) &&
+			blackboard->GetData(P_INTERFACE, examInterface) &&
+			blackboard->GetData(P_STEERING, output);
+
+		auto targetDir = zombie - playerInfo.Position;
+		auto angleTo = atan2f(targetDir.y, targetDir.x) + float(E_PI_2);
+		auto angleFrom = atan2f(sinf(playerInfo.Orientation), cosf(playerInfo.Orientation));
+		auto deltaAngle = angleTo - angleFrom;
+
+		output.AngularVelocity = deltaAngle * CONFIG_TURN_SPEED;
+		output.AutoOrient = false;
+
+		blackboard->ChangeData(P_STEERING, output);
+
+		if (deltaAngle >= 1.f)
+		{
+			return BehaviorState::Running;
+		}
+		else 
+		{
+			return BehaviorState::Success;
+		}
+	}
+
+	BehaviorState Shoot(Blackboard* blackboard)
+	{
+		Inventory inventory{};
+		IExamInterface* examInterface{};
+
+		blackboard->GetData(P_INVENTORY, inventory);
+		blackboard->GetData(P_INTERFACE, examInterface);
+
+		auto pistolIt = inventory.HasTypeOfInInventory(eItemType::PISTOL);
+		auto shotgunIt = inventory.HasTypeOfInInventory(eItemType::SHOTGUN);
+
+		if (pistolIt != inventory.items.end())
+		{
+			UINT slot = pistolIt - inventory.items.begin();
+
+			auto oldAmmoCount = examInterface->Weapon_GetAmmo((*pistolIt));
+			examInterface->Inventory_UseItem(slot);
+
+			if (oldAmmoCount - 1 <= 0)
+			{
+				inventory.RemoveSlot(slot);
+				blackboard->ChangeData(P_INVENTORY, inventory);
+				examInterface->Inventory_RemoveItem(slot);
+			}
+		}
+		else if (shotgunIt != inventory.items.end())
+		{
+			UINT slot = shotgunIt - inventory.items.begin();
+
+			auto oldAmmoCount = examInterface->Weapon_GetAmmo((*pistolIt));
+			examInterface->Inventory_UseItem(slot);
+
+			if (oldAmmoCount - 1 <= 0)
+			{
+				inventory.RemoveSlot(slot);
+				blackboard->ChangeData(P_INVENTORY, inventory);
+				examInterface->Inventory_RemoveItem(slot);
+			}
+		}
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState Turn(Blackboard* blackboard)
+	{
+		SteeringPlugin_Output output{};
+
+		output.AutoOrient = false;
+		output.AngularVelocity = CONFIG_TURN_SPEED;
+
+		blackboard->ChangeData(P_STEERING, output);
+		return BehaviorState::Success;
+	}
+
+	BehaviorState RunForestRun(Blackboard* blackboard) 
+	{
+		Elite::Vector2 targetPos{};
+		AgentInfo playerInfo{};
+		IExamInterface* examInterface{};
+		SteeringPlugin_Output output{};
+		bool canRun{};
+
+		bool dataFound = blackboard->GetData(P_TARGETINFO, targetPos) &&
+			blackboard->GetData(P_PLAYERINFO, playerInfo) &&
+			blackboard->GetData(P_INTERFACE, examInterface);
+
+		targetPos = examInterface->NavMesh_GetClosestPathPoint(targetPos);
+
+		output.RunMode = true;
+		output.AutoOrient = true;
+		output.LinearVelocity = targetPos - playerInfo.Position;
+		output.LinearVelocity.Normalize();
+		output.LinearVelocity *= playerInfo.MaxLinearSpeed;
+
+		blackboard->ChangeData(P_STEERING, output);
 		return BehaviorState::Success;
 	}
 }
@@ -317,7 +559,7 @@ namespace BT_Conditions
 		return shouldExplore;
 	}
 	
-	bool IsHouseInPOV(Blackboard* blackboard)
+	bool IsHouseInFOV(Blackboard* blackboard)
 	{
 		std::vector<HouseInfo> houses{};
 		std::vector<KnownHouse> knownHouses{};
@@ -338,6 +580,7 @@ namespace BT_Conditions
 
 		if (housesFound)
 		{
+
 			auto newHouse = houses[0];
 
 			auto foundIt = std::find_if(knownHouses.begin(), knownHouses.end(), [newHouse](KnownHouse house) {
@@ -397,6 +640,8 @@ namespace BT_Conditions
 			agentInfo.Position.y > houseInfo.Center.y - houseInfo.Size.y / 2 &&
 			agentInfo.Position.y < houseInfo.Center.y + houseInfo.Size.y / 2
 		);
+
+		return isInHouse;
 	}
 	
 	bool ShouldSweepHouse(Blackboard* blackboard)
@@ -466,39 +711,39 @@ namespace BT_Conditions
 
 	bool SeesItem(Blackboard* blackboard)
 	{
-		std::vector<EntityInfo> entities{};
+		std::vector<EntityInfo>* items{};
 		IExamInterface* examInterface{};
 
 		bool dataFound =
-			blackboard->GetData(P_ENTITIES_IN_FOV, entities) &&
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
 			blackboard->GetData(P_INTERFACE, examInterface);
 
-		if (!dataFound || entities.size() == 0)
+		if (!dataFound || items->size() == 0)
 		{
 			return false;
 		}
 
-		return entities.size() != 0;
+		return items->size() != 0;
 	}
 
 	bool SeesGarbage(Blackboard* blackboard)
 	{
-		std::vector<EntityInfo> entities{};
+		std::vector<EntityInfo>* items{};
 		IExamInterface* examInterface{};
 
 		bool dataFound =
-			blackboard->GetData(P_ENTITIES_IN_FOV, entities) &&
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
 			blackboard->GetData(P_INTERFACE, examInterface);
 
-		if (!dataFound || entities.size() == 0)
+		if (!dataFound || items->size() == 0)
 		{
 			return false;
 		}
 
-		for (auto entity : entities)
+		for (auto entityInfo : *items)
 		{
 			ItemInfo itemInfo{};
-			examInterface->Item_GetInfo(entity, itemInfo);
+			examInterface->Item_GetInfo(entityInfo, itemInfo);
 
 			if (itemInfo.Type == eItemType::GARBAGE)
 			{
@@ -525,9 +770,219 @@ namespace BT_Conditions
 		bool hasEmptySlot = inventory.HasEmptySlot() != inventory.slots.size();
 		return hasEmptySlot;
 	}
-}
 
-namespace BT_HELPERS 
-{
-	
+	bool IsPlayerLowHealth(Blackboard* blackboard)
+	{
+		AgentInfo playerInfo{};
+
+		bool hasData = blackboard->GetData(P_PLAYERINFO, playerInfo);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		return playerInfo.Health <= CONFIG_MIN_ALLOWED_HEALTH;
+	}
+
+	bool CanPlayerHeal(Blackboard* blackboard)
+	{
+		AgentInfo playerInfo{};
+		Inventory inventory{};
+
+		bool hasData = blackboard->GetData(P_PLAYERINFO, playerInfo)
+			&& blackboard->GetData(P_INVENTORY, inventory);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		return inventory.HasTypeOfInInventory(eItemType::MEDKIT) != inventory.items.end();
+	}
+
+	bool IsPlayerLowStamina(Blackboard* blackboard)
+	{
+		AgentInfo playerInfo{};
+
+		bool hasData = blackboard->GetData(P_PLAYERINFO, playerInfo);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		return playerInfo.Energy <= CONFIG_MIN_ALLOWED_STAMINA;
+	}
+
+	bool CanPlayerEat(Blackboard* blackboard)
+	{
+		AgentInfo playerInfo{};
+		Inventory inventory{};
+
+		bool hasData = blackboard->GetData(P_PLAYERINFO, playerInfo)
+			&& blackboard->GetData(P_INVENTORY, inventory);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		return inventory.HasTypeOfInInventory(eItemType::FOOD) != inventory.items.end();
+	}
+
+	bool IsZombieInFOV(Blackboard* blackboard)
+	{
+		std::vector<EnemyInfo>* enemies{};
+		IExamInterface* examInterface{};
+
+		bool hasData = blackboard->GetData(P_ENEMIES_IN_FOV, enemies) &&
+			blackboard->GetData(P_INTERFACE, examInterface);
+
+		if (!hasData || enemies->size() == 0)
+		{
+			return false;
+		}
+
+		bool doesFOVContainZombie{ false };
+
+		for (auto enemy : *enemies)
+		{
+			doesFOVContainZombie = true;
+			blackboard->ChangeData(P_ZOMBIE_TARGET, enemy.Location);
+		}
+
+		return doesFOVContainZombie;
+	}
+
+	bool IsPlayerArmed(Blackboard* blackboard)
+	{
+		Inventory inventory{};
+
+		bool hasData = blackboard->GetData(P_INVENTORY, inventory);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		bool hasPistol = inventory.HasTypeOfInInventory(eItemType::PISTOL) != inventory.items.end();
+		bool hasShotgun = inventory.HasTypeOfInInventory(eItemType::SHOTGUN) != inventory.items.end();
+
+		bool isArmed = hasPistol || hasShotgun;
+
+		// Return true if player has shotgun or pistol
+		return isArmed;
+	}
+
+	bool IsPlayerNOTArmed(Blackboard* blackboard)
+	{
+		Inventory inventory{};
+
+		bool hasData = blackboard->GetData(P_INVENTORY, inventory);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		bool hasPistol = inventory.HasTypeOfInInventory(eItemType::PISTOL) != inventory.items.end();
+		bool hasShotgun = inventory.HasTypeOfInInventory(eItemType::SHOTGUN) != inventory.items.end();
+
+		bool isArmed = hasPistol || hasShotgun;
+
+		// Return true if player has shotgun or pistol
+		return !isArmed;
+	}
+
+	bool IsPlayerBitten(Blackboard* blackboard)
+	{
+		AgentInfo playerInfo{};
+		bool playerWasBitten{};
+
+		bool hasData = blackboard->GetData(P_PLAYERINFO, playerInfo) &&
+			blackboard->GetData(P_PLAYER_WAS_BITTEN, playerWasBitten);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		if (playerWasBitten)
+		{
+			return true;
+		}
+
+		if (playerInfo.WasBitten)
+		{
+			blackboard->ChangeData(P_PLAYER_WAS_BITTEN, true);
+		}
+
+		return playerInfo.WasBitten;
+	}
+
+	bool IsFacingEnemy(Blackboard* blackboard)
+	{
+		std::vector<EnemyInfo>* enemies{};
+		AgentInfo playerInfo{};
+		AgentInfo agentInfo{};
+		SteeringPlugin_Output lastSteering{};
+
+		blackboard->GetData(P_ENEMIES_IN_FOV, enemies);
+		blackboard->GetData(P_PLAYERINFO, agentInfo);
+		blackboard->GetData(P_STEERING, lastSteering);
+
+		if (enemies->size() == 0)
+		{
+			return false;
+		}
+
+		EnemyInfo& targetEnemy = enemies->front();
+
+		Elite::Vector2 toTargetNormal = (targetEnemy.Location - agentInfo.Position).GetNormalized();
+		Elite::Vector2 heading = Elite::OrientationToVector(agentInfo.Orientation);
+
+		// Get difference
+		const float dotResult = heading.Dot(toTargetNormal);
+
+		float accuracyMargin = 0.005f;
+		if (DistanceSquared(agentInfo.Position, targetEnemy.Location) > exp2f(agentInfo.FOV_Range / 2))
+		{
+			accuracyMargin = 0.00001f;
+		}
+
+		return Elite::AreEqual(dotResult, 1.0f, accuracyMargin);
+	}
+
+	bool IsNotFacingEnemy(Blackboard* blackboard)
+	{
+		std::vector<EnemyInfo>* enemies{};
+		AgentInfo playerInfo{};
+		AgentInfo agentInfo{};
+		SteeringPlugin_Output lastSteering{};
+
+		blackboard->GetData(P_ENEMIES_IN_FOV, enemies);
+		blackboard->GetData(P_PLAYERINFO, agentInfo);
+		blackboard->GetData(P_STEERING, lastSteering);
+
+		if (enemies->size() == 0)
+		{
+			return false;
+		}
+
+		EnemyInfo& targetEnemy = enemies->front();
+
+		Elite::Vector2 toTargetNormal = (targetEnemy.Location - agentInfo.Position).GetNormalized();
+		Elite::Vector2 heading = Elite::OrientationToVector(agentInfo.Orientation);
+
+		// Get difference
+		const float dotResult = heading.Dot(toTargetNormal);
+
+		float accuracyMargin = 0.005f;
+		if (DistanceSquared(agentInfo.Position, targetEnemy.Location) > exp2f(agentInfo.FOV_Range / 2))
+		{
+			accuracyMargin = 0.00001f;
+		}
+		return !Elite::AreEqual(dotResult, 1.0f, accuracyMargin);
+	}
 }

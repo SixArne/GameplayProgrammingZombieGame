@@ -30,9 +30,9 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	m_pBlackboard->AddData(P_TARGETINFO, Elite::Vector2{ 0, 0 });
 	m_pBlackboard->AddData(P_INTERFACE, m_pInterface);
 	m_pBlackboard->AddData(P_SHOULDEXPLORE, m_ShouldExplore);
-	m_pBlackboard->AddData(P_HOUSES_IN_FOV, m_HousesInPOV);
-	m_pBlackboard->AddData(P_ENTITIES_IN_FOV, m_EntitiesInPOV);
-	m_pBlackboard->AddData(P_CAN_RUN, m_CanRun);
+	m_pBlackboard->AddData(P_HOUSES_IN_FOV, m_HousesInFOV);
+	m_pBlackboard->AddData(P_ENEMIES_IN_FOV, &m_EnemiesInFOV);
+	m_pBlackboard->AddData(P_ITEMS_IN_FOV, &m_ItemsInFOV);
 	m_pBlackboard->AddData(P_STEERING, SteeringPlugin_Output{});
 	m_pBlackboard->AddData(P_LAST_POSITION, m_LastPosition);
 	m_pBlackboard->AddData(P_ACTIVE_HOUSE, HouseInfo{});
@@ -42,10 +42,63 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	m_pBlackboard->AddData(P_IS_GOING_FOR_HOUSE, false);
 	m_pBlackboard->AddData(P_INVENTORY, Inventory{});
 	m_pBlackboard->AddData(P_HOUSE_TO_SWEEP, SweepHouse{});
+	m_pBlackboard->AddData(P_ZOMBIE_TARGET, Elite::Vector2{});
+	m_pBlackboard->AddData(P_PLAYER_WAS_BITTEN, false);
 
 	// Tree creation
 	m_pBehaviorTree = new BehaviorTree(m_pBlackboard,
 		new BehaviorSelector{{
+			/************************************************************************/
+			/* Combat                                                               */
+			/************************************************************************/
+			new BehaviorSelector{{
+				new BehaviorSequence{{
+					new BehaviorConditional(BT_Conditions::IsZombieInFOV),
+					new BehaviorConditional(BT_Conditions::IsPlayerArmed),
+					new BehaviorSelector{{
+						new BehaviorSequence{{
+							new BehaviorConditional(BT_Conditions::IsFacingEnemy),
+							/*new BehaviorAction(BT_Actions::FaceZombie),*/
+							new BehaviorAction(BT_Actions::Shoot)
+						}},
+						new BehaviorSequence{{
+							new BehaviorConditional(BT_Conditions::IsNotFacingEnemy),
+							new BehaviorAction(BT_Actions::SetAsTarget),
+							new BehaviorAction(BT_Actions::Face)
+						}},
+					}},
+				}},
+				new BehaviorSequence{{
+					new BehaviorConditional(BT_Conditions::IsZombieInFOV),
+					new BehaviorConditional(BT_Conditions::IsInHouse),
+					new BehaviorConditional(BT_Conditions::IsPlayerNOTArmed),
+					new BehaviorAction(BT_Actions::AddHouseToVisited),
+					new BehaviorAction(BT_Actions::SetRunAsTarget),
+					new BehaviorAction(BT_Actions::RunForestRun)
+				}},
+				new BehaviorSequence{{
+					new BehaviorConditional(BT_Conditions::IsPlayerBitten),
+					new BehaviorConditional(BT_Conditions::IsPlayerArmed),
+					new BehaviorAction(BT_Actions::Turn)
+				}},
+				new BehaviorSequence{{
+					new BehaviorConditional(BT_Conditions::IsPlayerBitten),
+					new BehaviorAction(BT_Actions::RunForestRun)
+				}},
+			}},
+			/************************************************************************/
+			/* Item consumption														*/
+			/************************************************************************/
+			new BehaviorSequence{{
+				new BehaviorConditional(BT_Conditions::IsPlayerLowHealth),
+				new BehaviorConditional(BT_Conditions::CanPlayerHeal),
+				new BehaviorAction(BT_Actions::Heal)
+			}},
+			new BehaviorSequence{{
+				new BehaviorConditional(BT_Conditions::IsPlayerLowStamina),
+				new BehaviorConditional(BT_Conditions::CanPlayerEat),
+				new BehaviorAction(BT_Actions::Eat)
+			}},
 
 			/************************************************************************/
 			/* Garbage																*/
@@ -98,7 +151,7 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 			/************************************************************************/
 			new BehaviorSelector{{
 				new BehaviorSequence{{
-					new BehaviorConditional(BT_Conditions::IsHouseInPOV),
+					new BehaviorConditional(BT_Conditions::IsHouseInFOV),
 					new BehaviorAction(BT_Actions::Seek)
 				}},
 				new BehaviorSequence{{
@@ -122,8 +175,6 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 
 	Elite::Vector2 dim = m_pInterface->World_GetInfo().Dimensions;
 	Elite::Vector2 org = m_pInterface->World_GetInfo().Center;
-
-	float size{ 4 };
 
 
 	m_LocationPicker = std::uniform_real_distribution<float>(0, CONFIG_RANDOM_LOCATION_COUNT);
@@ -162,7 +213,7 @@ void Plugin::InitGameDebugParams(GameDebugParams& params)
 	params.SpawnPurgeZonesOnMiddleClick = true;
 	params.PrintDebugMessages = true;
 	params.ShowDebugItemNames = true;
-	params.Seed = 169;
+	params.Seed = 6;
 }
 
 //Only Active in DEBUG Mode
@@ -232,15 +283,19 @@ void Plugin::Update(float dt)
 //This function calculates the new SteeringOutput, called once per frame
 SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 {
-	m_HousesInPOV.clear();
-	m_EntitiesInPOV.clear();
+	// Clear data
+	m_HousesInFOV.clear();
+	m_EnemiesInFOV.clear();
+	m_ItemsInFOV.clear();
 
-	m_pBlackboard->ChangeData(P_CAN_RUN, false);
+	m_HousesInFOV = GetHousesInFOV();
+	m_pBlackboard->ChangeData(P_HOUSES_IN_FOV, m_HousesInFOV);
 
-	m_HousesInPOV = GetHousesInFOV();
-	m_EntitiesInPOV = GetEntitiesInFOV();
-	m_pBlackboard->ChangeData(P_HOUSES_IN_FOV, m_HousesInPOV);
-	m_pBlackboard->ChangeData(P_ENTITIES_IN_FOV, m_EntitiesInPOV);
+	std::vector<HouseInfo> houses{};
+	m_pBlackboard->GetData(P_HOUSES_IN_FOV, houses);
+
+	// Set items and enemies in fov
+	SeperateFOVEntities();
 
 	SteeringPlugin_Output steering{};
 
@@ -267,7 +322,8 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 
 
 	SweepFullMap();
-
+	ManageBittenTimer(dt);
+	
 	return steering;
 
 //	auto steering = SteeringPlugin_Output();
@@ -345,6 +401,25 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 ////@End (Demo Purposes)
 }
 
+void Plugin::ManageBittenTimer(float dt)
+{
+	bool wasBitten{};
+	m_pBlackboard->GetData(P_PLAYER_WAS_BITTEN, wasBitten);
+	if (wasBitten)
+	{
+		m_BittenTimer += dt;
+	}
+
+
+
+	if (m_BittenTimer > CONFIG_BITTEN_REMEMBER_TIME)
+	{
+		m_pBlackboard->ChangeData(P_PLAYER_WAS_BITTEN, false);
+		m_BittenTimer = 0.f;
+	}
+
+}
+
 void Plugin::SweepFullMap()
 {
 	// Exploration section
@@ -359,6 +434,33 @@ void Plugin::SweepFullMap()
 	{
 		// Pick random location
 		m_pBlackboard->ChangeData(P_DESTINATION, m_RandomLocationsToVisit[m_LocationPicker(m_Rng)]);
+	}
+}
+
+void Plugin::SeperateFOVEntities()
+{
+	auto entities = GetEntitiesInFOV();
+
+	for (auto& entity : entities)
+	{
+		switch (entity.Type)
+		{
+		case eEntityType::ENEMY:
+		{
+			EnemyInfo enemyInfo{};
+			m_pInterface->Enemy_GetInfo(entity, enemyInfo);
+			m_EnemiesInFOV.push_back(enemyInfo);
+		}
+		break;
+		case eEntityType::ITEM:
+		{
+			std::cout << "Adding item with hash: " << entity.EntityHash << std::endl;
+			m_ItemsInFOV.push_back(entity);
+		}
+		break;
+		default:
+			break;
+		}
 	}
 }
 
@@ -385,6 +487,8 @@ void Plugin::GenerateRandomVisitLocations()
 		float x = cos((float)i) * worldInfo.Dimensions.x * worldMapPercentage;
 		float y = sin((float)i) * worldInfo.Dimensions.y * worldMapPercentage;
 
+		std::cout << "x: " << x << " y: " << y << std::endl;
+
 		m_RandomLocationsToVisit.push_back(Elite::Vector2(x, y));
 	}
 }
@@ -393,6 +497,7 @@ void Plugin::GenerateRandomVisitLocations()
 void Plugin::Render(float dt) const
 {
 	Elite::Vector2 targetPos{};
+	Elite::Vector2 destPos{};
 	AgentInfo agentInfo{};
 	HouseInfo houseInfo{};
 
@@ -401,6 +506,9 @@ void Plugin::Render(float dt) const
 
 	m_pBlackboard->GetData(P_ACTIVE_HOUSE, houseInfo);
 	m_pInterface->Draw_SolidCircle(houseInfo.Center, .7f, { 0,0 }, { 1, 0, 1 });
+
+	m_pBlackboard->GetData(P_DESTINATION, destPos);
+	m_pInterface->Draw_SolidCircle(destPos, 2.f, { 0,0 }, { 1, 1, 1 });
 
 	m_pBlackboard->GetData(P_PLAYERINFO, agentInfo);
 	m_pInterface->Draw_Segment(agentInfo.Position, targetPos, { 0,0,0 });

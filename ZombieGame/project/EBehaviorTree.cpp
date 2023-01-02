@@ -127,8 +127,8 @@ BehaviorState BehaviorConditional::Execute(Blackboard* pBlackBoard)
 		m_CurrentState = m_CurrentState = BehaviorState::Failure;
 		return m_CurrentState;
 	}
-
 }
+
 //-----------------------------------------------------------------
 // BEHAVIOR TREE ACTION (IBehavior)
 //-----------------------------------------------------------------

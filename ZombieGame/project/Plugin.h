@@ -15,8 +15,6 @@
 #define P_INTERFACE "interface"
 #define P_SHOULDEXPLORE "shouldExplore" 
 #define P_HOUSES_IN_FOV "housesFOV"
-#define P_ENTITIES_IN_FOV "entitiesPOV"
-#define P_CAN_RUN "canRun"
 #define P_STEERING "steering"
 #define P_LAST_POSITION "lastPosition"
 #define P_ACTIVE_HOUSE "activeHouse"
@@ -26,13 +24,20 @@
 #define P_IS_GOING_FOR_HOUSE "isGoingForHouse"
 #define P_INVENTORY "inventory"
 #define P_HOUSE_TO_SWEEP "sweepHouse"
+#define P_ZOMBIE_TARGET "zombieTarget"
+#define P_PLAYER_WAS_BITTEN "playerWasBitten"
+#define P_ENEMIES_IN_FOV "enemiesInFOV"
+#define P_ITEMS_IN_FOV "itemsInFOV"
 
 #define CONFIG_SWEEP_MAX_TIMEOUT 50
 #define CONFIG_WANDER_ANGLE 45
 #define CONFIG_RANDOM_LOCATION_COUNT 10
 #define CONFIG_MIN_ALLOWED_HEALTH 2.0
+#define CONFIG_MIN_ALLOWED_STAMINA 2.0
 #define CONFIG_MAX_HOUSE_SWEEP_SPOTS 4
 #define CONFIG_HOUSE_WALL_WIDTH 5
+#define CONFIG_TURN_SPEED 50
+#define CONFIG_BITTEN_REMEMBER_TIME 5
 
 class IBaseInterface;
 class IExamInterface;
@@ -81,6 +86,7 @@ private:
 	Blackboard* m_pBlackboard;
 
 	bool m_ShouldExplore{ true };
+	float m_BittenTimer{};
 
 	Elite::Vector2 m_LastPosition{};
 
@@ -89,8 +95,9 @@ private:
 	std::uniform_real_distribution<float> m_LocationPicker;
 	std::uniform_real_distribution<float> m_Norm;
 
-	std::vector<HouseInfo> m_HousesInPOV{};
-	std::vector<EntityInfo> m_EntitiesInPOV{};
+	std::vector<HouseInfo> m_HousesInFOV{};
+	std::vector<EnemyInfo> m_EnemiesInFOV{};
+	std::vector<EntityInfo> m_ItemsInFOV{};
 
 	std::vector<Elite::Vector2> m_RandomLocationsToVisit{};
 
@@ -99,6 +106,8 @@ private:
 	/************************************************************************/
 	void SweepFullMap();
 	void GenerateRandomVisitLocations();
+	void SeperateFOVEntities();
+	void ManageBittenTimer(float dt);
 
 	UINT m_InventorySlot = 0;
 };
