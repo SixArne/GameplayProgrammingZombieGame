@@ -28,6 +28,7 @@
 #define P_PLAYER_WAS_BITTEN "playerWasBitten"
 #define P_ENEMIES_IN_FOV "enemiesInFOV"
 #define P_ITEMS_IN_FOV "itemsInFOV"
+#define P_IS_IN_HOUSE "isInHouse"
 
 #define CONFIG_SWEEP_MAX_TIMEOUT 50
 #define CONFIG_WANDER_ANGLE 45

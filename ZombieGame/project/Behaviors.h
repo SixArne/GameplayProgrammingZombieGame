@@ -149,7 +149,6 @@ namespace BT_Actions
 
 				if (grabRange < maxGrabRange * maxGrabRange)
 				{
-					std::cout << "picking item with hash: " << itemInfo.ItemHash << std::endl;
 					if (const auto canGrab = examInterface->Item_Grab(item, itemInfo))
 					{
 						if (!canGrab)
@@ -256,10 +255,12 @@ namespace BT_Actions
 		AgentInfo agentInfo{};
 		IExamInterface* pluginInterface{};
 		SteeringPlugin_Output output{};
+		bool isInsideHouse{};
 
 		bool dataFound = blackboard->GetData(P_TARGETINFO, targetPos) &&
 			blackboard->GetData(P_PLAYERINFO, agentInfo) &&
-			blackboard->GetData(P_INTERFACE, pluginInterface);
+			blackboard->GetData(P_INTERFACE, pluginInterface) &&
+			blackboard->GetData(P_IS_IN_HOUSE, isInsideHouse);
 
 		if (!dataFound)
 		{
@@ -269,6 +270,18 @@ namespace BT_Actions
 		targetPos = pluginInterface->NavMesh_GetClosestPathPoint(targetPos);
 
 		output.RunMode = false;
+
+		if (isInsideHouse)
+		{
+			output.AutoOrient = true;
+			output.AngularVelocity = 0;
+		}
+		else
+		{
+			output.AutoOrient = false;
+			output.AngularVelocity = CONFIG_TURN_SPEED;
+		}
+		
 		output.LinearVelocity = targetPos - agentInfo.Position;
 		output.LinearVelocity.Normalize();
 		output.LinearVelocity *= agentInfo.MaxLinearSpeed;
@@ -319,6 +332,7 @@ namespace BT_Actions
 		{
 			targetPos = pluginInterface->NavMesh_GetClosestPathPoint(sweepHouse.GetNextSweepSpot());
 
+			output.AutoOrient = true;
 			output.LinearVelocity = targetPos - agentInfo.Position;
 			output.LinearVelocity.Normalize();
 			output.LinearVelocity *= agentInfo.MaxLinearSpeed;
@@ -381,6 +395,7 @@ namespace BT_Actions
 		blackboard->ChangeData(P_STEERING, output);
 		blackboard->ChangeData(P_SHOULDEXPLORE, true);
 		blackboard->ChangeData(P_IS_GOING_FOR_HOUSE, false);
+		blackboard->ChangeData(P_IS_IN_HOUSE, false);
 
 		return BehaviorState::Success;
 	}
@@ -606,6 +621,9 @@ namespace BT_Conditions
 
 		if (shouldCheckoutHouse)
 		{
+			// stop spinning like a silly geese
+			blackboard->ChangeData(P_IS_IN_HOUSE, true);
+
 			blackboard->ChangeData(P_TARGETINFO, houses[0].Center);
 			blackboard->ChangeData(P_SHOULDEXPLORE, false);
 
@@ -665,6 +683,9 @@ namespace BT_Conditions
 			return distance <= FLT_EPSILON;
 		});
 
+		// When sweeping we know we are inside, so we set data
+		blackboard->ChangeData(P_IS_IN_HOUSE, true);
+
 		// Found
 		if (foundIt != knownHouses.end())
 		{
@@ -722,6 +743,8 @@ namespace BT_Conditions
 		{
 			return false;
 		}
+
+		blackboard->ChangeData(P_IS_IN_HOUSE, true);
 
 		return items->size() != 0;
 	}

@@ -44,6 +44,7 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	m_pBlackboard->AddData(P_HOUSE_TO_SWEEP, SweepHouse{});
 	m_pBlackboard->AddData(P_ZOMBIE_TARGET, Elite::Vector2{});
 	m_pBlackboard->AddData(P_PLAYER_WAS_BITTEN, false);
+	m_pBlackboard->AddData(P_IS_IN_HOUSE, false);
 
 	// Tree creation
 	m_pBehaviorTree = new BehaviorTree(m_pBlackboard,
@@ -213,7 +214,7 @@ void Plugin::InitGameDebugParams(GameDebugParams& params)
 	params.SpawnPurgeZonesOnMiddleClick = true;
 	params.PrintDebugMessages = true;
 	params.ShowDebugItemNames = true;
-	params.Seed = 6;
+	params.Seed = 20;
 }
 
 //Only Active in DEBUG Mode
@@ -288,6 +289,7 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 	m_EnemiesInFOV.clear();
 	m_ItemsInFOV.clear();
 
+	// update houses
 	m_HousesInFOV = GetHousesInFOV();
 	m_pBlackboard->ChangeData(P_HOUSES_IN_FOV, m_HousesInFOV);
 
@@ -296,6 +298,9 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 
 	// Set items and enemies in fov
 	SeperateFOVEntities();
+
+	// spinning should be false by default
+	m_pBlackboard->ChangeData(P_IS_IN_HOUSE, false);
 
 	SteeringPlugin_Output steering{};
 
@@ -454,7 +459,6 @@ void Plugin::SeperateFOVEntities()
 		break;
 		case eEntityType::ITEM:
 		{
-			std::cout << "Adding item with hash: " << entity.EntityHash << std::endl;
 			m_ItemsInFOV.push_back(entity);
 		}
 		break;
