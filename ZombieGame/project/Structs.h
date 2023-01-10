@@ -117,7 +117,15 @@ struct Inventory
 		case eItemType::GARBAGE:
 			
 			{
-				
+				auto hasItemOfTypeIt = HasTypeOfInInventory(itemToConsider.Type);
+
+				// If contained get ammo and compare
+				if (hasItemOfTypeIt != items.end())
+				{
+					return hasItemOfTypeIt - items.begin();
+				}
+
+				return items.size();
 			}
 			
 			break;
@@ -274,7 +282,7 @@ struct Inventory
 	{
 		auto nullItem = ItemInfo{};
 		nullItem.Location = Elite::Vector2{ 0,0 };
-		nullItem.Type = eItemType::_LAST;
+		nullItem.Type = eItemType::_EMPTY;
 
 		items[slot] = nullItem;
 		slots[slot] = false;

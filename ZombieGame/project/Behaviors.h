@@ -117,8 +117,10 @@ namespace BT_Actions
 			EntityInfo entityToGrab{};
 
 			ItemInfo itemInfo{};
-			examInterface->Item_GetInfo(item, itemInfo);
+			bool isItem = examInterface->Item_GetInfo(item, itemInfo);
 
+			if (!isItem)
+				continue;
 
 			// Garbage is handled by different stage
 			if (itemInfo.Type != eItemType::GARBAGE)
@@ -231,7 +233,10 @@ namespace BT_Actions
 		for (auto& entityInfo : *items)
 		{
 			ItemInfo itemInfo{};
-			examInterface->Item_GetInfo(entityInfo, itemInfo);
+			bool isItem = examInterface->Item_GetInfo(entityInfo, itemInfo);
+			if (!isItem)
+				continue;
+
 			UINT slot = inventory.DetermineUselessItemSlot(examInterface, itemInfo);
 
 			if (slot != inventory.slots.size())
@@ -268,6 +273,7 @@ namespace BT_Actions
 		}
 
 		targetPos = pluginInterface->NavMesh_GetClosestPathPoint(targetPos);
+		pluginInterface->Draw_Point(targetPos, 5.f, Elite::Vector3{ 0,1,0 });
 
 		output.RunMode = false;
 
@@ -770,6 +776,8 @@ namespace BT_Conditions
 
 			if (itemInfo.Type == eItemType::GARBAGE)
 			{
+				blackboard->ChangeData(P_TARGETINFO, itemInfo.Location);
+
 				return true;
 			}
 		}

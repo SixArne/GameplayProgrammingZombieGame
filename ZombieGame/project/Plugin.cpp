@@ -107,6 +107,7 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 			new BehaviorSequence{{
 				new BehaviorConditional(BT_Conditions::SeesGarbage),
 				new BehaviorConditional(BT_Conditions::HasInventorySlot),
+				new BehaviorAction(BT_Actions::Seek),
 				new BehaviorAction(BT_Actions::Pickup),
 				new BehaviorAction(BT_Actions::Drop)
 			}},
@@ -214,7 +215,7 @@ void Plugin::InitGameDebugParams(GameDebugParams& params)
 	params.SpawnPurgeZonesOnMiddleClick = true;
 	params.PrintDebugMessages = true;
 	params.ShowDebugItemNames = true;
-	params.Seed = 20;
+	params.Seed = 0;
 }
 
 //Only Active in DEBUG Mode
