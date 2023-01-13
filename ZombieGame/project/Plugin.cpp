@@ -118,8 +118,7 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 				new BehaviorSelector{{
 					new BehaviorSequence{{
 						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
-						new BehaviorAction(BT_Actions::PickupItem),
-						new BehaviorAction(BT_Actions::Drop)
+						new BehaviorAction(BT_Actions::DestroyGarbage)
 					}},
 					new BehaviorSequence{{
 						new BehaviorAction(BT_Actions::SetItemAsTarget),
@@ -141,20 +140,66 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 						new BehaviorConditional(BT_Conditions::CanPlayerEat),
 						new BehaviorAction(BT_Actions::Eat)
 					}},
+					// Consume medkit if hurt and on ground
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsItemMedkit),
+						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
+						new BehaviorConditional(BT_Conditions::CanPlayerHeal),
+						new BehaviorAction(BT_Actions::Heal)
+					}},
+					// Checks if pistol is worth it 
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsItemPistol),
+						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
+						new BehaviorSelector{{
+							new BehaviorSequence{{
+								// If has no pistol pick up
+								new BehaviorNotConditional(BT_Conditions::HasPistol),
+								new BehaviorAction(BT_Actions::PickupItem),
+							}},
+							new BehaviorSequence{{
+								// If has pistol but new one is better drop old pick up new
+								new BehaviorConditional(BT_Conditions::IsNewGunBetter),
+								new BehaviorAction(BT_Actions::DropOldGun),
+								new BehaviorAction(BT_Actions::PickupItem),
+							}},
+							new BehaviorSequence{{
+								// Destroy less-value gun
+								new BehaviorAction(BT_Actions::DestroyGun)
+							}}
+						}}
+					}},
+					// Checks if shotgun is worth it
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsItemShotgun),
+						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
+						new BehaviorSelector{{
+							new BehaviorSequence{{
+								// If has no pistol pick up
+								new BehaviorNotConditional(BT_Conditions::HasShotgun),
+								new BehaviorAction(BT_Actions::PickupItem),
+							}},
+							new BehaviorSequence{{
+								// If has pistol but new one is better drop old pick up new
+								new BehaviorConditional(BT_Conditions::IsNewGunBetter),
+								new BehaviorAction(BT_Actions::DropOldGun),
+								new BehaviorAction(BT_Actions::PickupItem),
+							}},
+							new BehaviorSequence{{
+								// Destroy less-value gun
+								new BehaviorAction(BT_Actions::DestroyGun)
+							}}
+						}}
+					}},
 					// Pick item if has inventory slot and in range
 					new BehaviorSequence{{
 						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
 						new BehaviorConditional(BT_Conditions::HasInventorySlot),
 						new BehaviorAction(BT_Actions::PickupItem),
 					}},
-					// If player has no inventory slot available
-					new BehaviorSequence{{
-						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
-						new BehaviorAction(BT_Actions::Drop),
-						new BehaviorAction(BT_Actions::PickupItem)
-					}},
 					// Set seen item as target and seek
 					new BehaviorSequence{{
+						new BehaviorNotConditional(BT_Conditions::IsPlayerInGrabRange),
 						new BehaviorAction(BT_Actions::SetItemAsTarget),
 						new BehaviorAction(BT_Actions::Seek)
 					}}
@@ -255,7 +300,7 @@ void Plugin::InitGameDebugParams(GameDebugParams& params)
 	params.SpawnPurgeZonesOnMiddleClick = true;
 	params.PrintDebugMessages = true;
 	params.ShowDebugItemNames = true;
-	params.Seed = 69;
+	params.Seed = 600;
 }
 
 //Only Active in DEBUG Mode
@@ -476,22 +521,25 @@ void Plugin::Render(float dt) const
 	Elite::Vector2 destPos{};
 	AgentInfo agentInfo{};
 	HouseInfo houseInfo{};
+	std::vector<Elite::Vector2> locationsToVisit{};
+	std::vector<Elite::Vector2> locationsVisited{};
 
+	// explore debug
+	m_pBlackboard->GetData(P_EXPLORE_LOCATIONS_TO_VISIT, locationsToVisit);
+	m_pBlackboard->GetData(P_EXPLORE_LOCATIONS_VISITED, locationsVisited);
 	m_pBlackboard->GetData(P_TARGETINFO, targetPos);
-	m_pInterface->Draw_SolidCircle(targetPos, .7f, { 0,0 }, { 1, 0, 0 });
-
 	m_pBlackboard->GetData(P_ACTIVE_HOUSE, houseInfo);
-	m_pInterface->Draw_SolidCircle(houseInfo.Center, .7f, { 0,0 }, { 1, 0, 1 });
-
 	m_pBlackboard->GetData(P_DESTINATION, destPos);
+	m_pBlackboard->GetData(P_PLAYERINFO, agentInfo);
+
+	m_pInterface->Draw_Segment(agentInfo.Position, targetPos, { 0,0,0 });
+	m_pInterface->Draw_SolidCircle(houseInfo.Center, .7f, { 0,0 }, { 1, 0, 1 });
 	m_pInterface->Draw_SolidCircle(destPos, 2.f, { 0,0 }, { 1, 1, 1 });
 
-	m_pBlackboard->GetData(P_PLAYERINFO, agentInfo);
-	m_pInterface->Draw_Segment(agentInfo.Position, targetPos, { 0,0,0 });
-
-	for (auto loc : m_RandomLocationsToVisit)
+	for (auto loc : locationsToVisit)
 	{
 		m_pInterface->Draw_Segment(loc, {0,0}, { 0,0,0 });
+		m_pInterface->Draw_Circle(loc, 10.f, { 1,0,1 });
 	}
 
 	SweepHouse sweepHouse{};

@@ -14,6 +14,58 @@ void PrintMessage(std::string message)
 
 namespace BT_Actions
 {
+	BehaviorState DropOldGun(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		Inventory inventory{};
+		IExamInterface* examInterface{};
+
+		blackboard->GetData(P_ITEMS_IN_FOV, items);
+		blackboard->GetData(P_INTERFACE, examInterface);
+		blackboard->GetData(P_INVENTORY, inventory);
+
+		auto item = items->front();
+
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(item, itemInfo);
+
+		if (!isItem)
+		{
+			return BehaviorState::Failure;
+		}
+
+		auto slot = inventory.GetSameTypeItemSlot(itemInfo.Type);
+		examInterface->Inventory_RemoveItem(slot);
+
+		inventory.RemoveSlot(slot);
+
+		blackboard->ChangeData(P_INVENTORY, inventory);
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState DestroyGun(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		IExamInterface* examInterface{};
+
+		blackboard->GetData(P_ITEMS_IN_FOV, items);
+		blackboard->GetData(P_INTERFACE, examInterface);
+
+		auto item = items->front();
+
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(item, itemInfo);
+
+		bool hasDestroyed = examInterface->Item_Destroy(item);
+		if (!hasDestroyed)
+		{
+			PrintMessage("Failed to destroy item, probably out of range");
+		}
+
+		return BehaviorState::Success;
+	}
+
 	BehaviorState SetItemAsTarget(Blackboard* blackboard)
 	{
 		std::vector<EntityInfo>* items{};
@@ -236,6 +288,33 @@ namespace BT_Actions
 
 		blackboard->GetData(P_DESTINATION, destination);
 		blackboard->ChangeData(P_TARGETINFO, destination);
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState DestroyGarbage(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		IExamInterface* examInterface{};
+		blackboard->GetData(P_ITEMS_IN_FOV, items);
+		blackboard->GetData(P_INTERFACE, examInterface);
+
+		// get first item
+		auto item = items->front();
+
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(item, itemInfo);
+
+		if (!isItem)
+		{
+			return BehaviorState::Failure;
+		}
+
+		bool hasDestroyed = examInterface->Item_Destroy(item);
+		if (!hasDestroyed)
+		{
+			PrintMessage("Failed to destroy garbage, probably out of range");
+		}
 
 		return BehaviorState::Success;
 	}
@@ -504,6 +583,7 @@ namespace BT_Actions
 	{
 
 		Elite::Vector2 destination{};
+		
 
 		bool dataFound = blackboard->GetData(P_DESTINATION, destination);
 		if (!dataFound)
@@ -879,11 +959,24 @@ namespace BT_Conditions
 	bool IsGoingToHouse(Blackboard* blackboard)
 	{
 		bool isGoingForHouse{};
+		HouseInfo houseInfo{};
+		Elite::Vector2 target{};
 
-		bool dataFound = blackboard->GetData(P_IS_GOING_FOR_HOUSE, isGoingForHouse);
+		bool dataFound = blackboard->GetData(P_IS_GOING_FOR_HOUSE, isGoingForHouse) &&
+			blackboard->GetData(P_ACTIVE_HOUSE, houseInfo) &&
+			blackboard->GetData(P_TARGETINFO, target);
 
 		if (!dataFound)
 		{
+			return false;
+		}
+
+		// Sometimes a target can be overwritten, usually in debug mode only, this is a unstuck mechanism.
+		if (Elite::Distance(target, houseInfo.Center) > FLT_EPSILON)
+		{
+			// Reset the target to the house to stop bug
+			blackboard->ChangeData(P_TARGETINFO, houseInfo.Center);
+
 			return false;
 		}
 
@@ -1280,5 +1373,168 @@ namespace BT_Conditions
 		}
 		
 		return itemInfo.Type == eItemType::FOOD;
+	}
+
+	bool IsItemMedkit(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		IExamInterface* examInterface{};
+
+		bool hasData =
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
+			blackboard->GetData(P_INTERFACE, examInterface);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		if (items->size() == 0)
+		{
+			PrintMessage("No items in FOV, have you placed this behind a SeesItem cond?");
+			return false;
+		}
+
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(items->front(), itemInfo);
+		if (!isItem)
+		{
+			PrintMessage("Not an item, have you placed this behind a SeesItem cond?");
+			return false;
+		}
+
+		return itemInfo.Type == eItemType::MEDKIT;
+	}
+
+	bool IsItemPistol(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		IExamInterface* examInterface{};
+
+		bool hasData =
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
+			blackboard->GetData(P_INTERFACE, examInterface);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		if (items->size() == 0)
+		{
+			PrintMessage("No items in FOV, have you placed this behind a SeesItem cond?");
+			return false;
+		}
+
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(items->front(), itemInfo);
+		if (!isItem)
+		{
+			PrintMessage("Not an item, have you placed this behind a SeesItem cond?");
+			return false;
+		}
+
+		return itemInfo.Type == eItemType::PISTOL;
+	}
+
+	bool IsItemShotgun(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		IExamInterface* examInterface{};
+
+		bool hasData =
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
+			blackboard->GetData(P_INTERFACE, examInterface);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		if (items->size() == 0)
+		{
+			PrintMessage("No items in FOV, have you placed this behind a SeesItem cond?");
+			return false;
+		}
+
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(items->front(), itemInfo);
+		if (!isItem)
+		{
+			PrintMessage("Not an item, have you placed this behind a SeesItem cond?");
+			return false;
+		}
+
+		return itemInfo.Type == eItemType::SHOTGUN;
+	}
+
+	bool HasShotgun(Blackboard* blackboard)
+	{
+		Inventory inventory{};
+
+		bool hasData = blackboard->GetData(P_INVENTORY, inventory);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		auto it = inventory.HasTypeOfInInventory(eItemType::SHOTGUN);
+		
+		return it < inventory.items.end();
+	}
+
+	bool HasPistol(Blackboard* blackboard)
+	{
+		Inventory inventory{};
+
+		bool hasData = blackboard->GetData(P_INVENTORY, inventory);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		auto it = inventory.HasTypeOfInInventory(eItemType::PISTOL);
+
+		return it < inventory.items.end();
+	}
+
+	bool IsNewGunBetter(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		Inventory inventory{};
+		IExamInterface* examInterface{};
+
+		bool hasData = blackboard->GetData(P_ITEMS_IN_FOV, items) &&
+			blackboard->GetData(P_INTERFACE, examInterface) &&
+			blackboard->GetData(P_INVENTORY, inventory);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		auto item = items->front();
+
+		ItemInfo itemInfo{};
+		auto isItem = examInterface->Item_GetInfo(item, itemInfo);
+
+		if (!isItem)
+		{
+			throw std::runtime_error("Not an item");
+		}
+
+		auto hasIt = inventory.HasTypeOfInInventory(itemInfo.Type);
+
+		if (hasIt == inventory.items.end())
+		{
+			return false;
+		}
+
+		int currentAmmo = examInterface->Weapon_GetAmmo(*hasIt);
+		int newAmmo = examInterface->Weapon_GetAmmo(itemInfo);
+
+		return newAmmo > currentAmmo;
 	}
 }
