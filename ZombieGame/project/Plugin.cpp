@@ -37,8 +37,8 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	m_pBlackboard->AddData(P_LAST_POSITION, m_LastPosition);
 	m_pBlackboard->AddData(P_ACTIVE_HOUSE, HouseInfo{});
 	m_pBlackboard->AddData(P_KNOWN_HOUSES, std::vector<KnownHouse>());
-	m_pBlackboard->AddData(P_DESTINATION_REACHED, false);
-	m_pBlackboard->AddData(P_DESTINATION, Elite::Vector2{});
+	
+	
 	m_pBlackboard->AddData(P_IS_GOING_FOR_HOUSE, false);
 	m_pBlackboard->AddData(P_INVENTORY, Inventory{});
 	m_pBlackboard->AddData(P_HOUSE_TO_SWEEP, SweepHouse{});
@@ -46,92 +46,120 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	m_pBlackboard->AddData(P_PLAYER_WAS_BITTEN, false);
 	m_pBlackboard->AddData(P_IS_IN_HOUSE, false);
 
+	// Exploration
+	m_pBlackboard->AddData(P_EXPLORE_LOCATIONS_TO_VISIT, m_RandomLocationsToVisit);
+	m_pBlackboard->AddData(P_EXPLORE_LOCATIONS_VISITED, m_RandomLocationsVisited);
+	m_pBlackboard->AddData(P_DESTINATION, Elite::Vector2{});
+	m_pBlackboard->AddData(P_DESTINATION_REACHED, false);
+
 	// Tree creation
 	m_pBehaviorTree = new BehaviorTree(m_pBlackboard,
-		new BehaviorSelector{{
-			/************************************************************************/
-			/* Combat                                                               */
-			/************************************************************************/
-			new BehaviorSelector{{
-				new BehaviorSequence{{
-					new BehaviorConditional(BT_Conditions::IsZombieInFOV),
-					new BehaviorConditional(BT_Conditions::IsPlayerArmed),
-					new BehaviorSelector{{
-						new BehaviorSequence{{
-							new BehaviorConditional(BT_Conditions::IsFacingEnemy),
-							/*new BehaviorAction(BT_Actions::FaceZombie),*/
-							new BehaviorAction(BT_Actions::Shoot)
-						}},
-						new BehaviorSequence{{
-							new BehaviorConditional(BT_Conditions::IsNotFacingEnemy),
-							new BehaviorAction(BT_Actions::SetAsTarget),
-							new BehaviorAction(BT_Actions::Face)
-						}},
-					}},
-				}},
-				new BehaviorSequence{{
-					new BehaviorConditional(BT_Conditions::IsZombieInFOV),
-					new BehaviorConditional(BT_Conditions::IsInHouse),
-					new BehaviorConditional(BT_Conditions::IsPlayerNOTArmed),
-					new BehaviorAction(BT_Actions::AddHouseToVisited),
-					new BehaviorAction(BT_Actions::SetRunAsTarget),
-					new BehaviorAction(BT_Actions::RunForestRun)
-				}},
-				new BehaviorSequence{{
-					new BehaviorConditional(BT_Conditions::IsPlayerBitten),
-					new BehaviorConditional(BT_Conditions::IsPlayerArmed),
-					new BehaviorAction(BT_Actions::Turn)
-				}},
-				new BehaviorSequence{{
-					new BehaviorConditional(BT_Conditions::IsPlayerBitten),
-					new BehaviorAction(BT_Actions::RunForestRun)
-				}},
-			}},
-			/************************************************************************/
-			/* Item consumption														*/
-			/************************************************************************/
-			new BehaviorSequence{{
-				new BehaviorConditional(BT_Conditions::IsPlayerLowHealth),
-				new BehaviorConditional(BT_Conditions::CanPlayerHeal),
-				new BehaviorAction(BT_Actions::Heal)
-			}},
-			new BehaviorSequence{{
-				new BehaviorConditional(BT_Conditions::IsPlayerLowStamina),
-				new BehaviorConditional(BT_Conditions::CanPlayerEat),
-				new BehaviorAction(BT_Actions::Eat)
-			}},
-
-			/************************************************************************/
-			/* Garbage																*/
-			/************************************************************************/
-			new BehaviorSequence{{
-				new BehaviorConditional(BT_Conditions::SeesGarbage),
-				new BehaviorConditional(BT_Conditions::HasInventorySlot),
-				new BehaviorAction(BT_Actions::Seek),
-				new BehaviorAction(BT_Actions::Pickup),
-				new BehaviorAction(BT_Actions::Drop)
-			}},
-			/************************************************************************/
-			/* Items																*/
-			/************************************************************************/
-			new BehaviorSequence{{
-				new BehaviorConditional(BT_Conditions::SeesItem),
+		new BehaviorSelector{ {
+				/************************************************************************/
+				/* Combat                                                               */
+				/************************************************************************/
 				new BehaviorSelector{{
 					new BehaviorSequence{{
-						new BehaviorConditional(BT_Conditions::HasInventorySlot),
-						new BehaviorAction(BT_Actions::Pickup),
-						new BehaviorAction(BT_Actions::Seek)
+						new BehaviorConditional(BT_Conditions::IsZombieInFOV),
+						new BehaviorConditional(BT_Conditions::IsPlayerArmed),
+						new BehaviorSelector{{
+							new BehaviorSequence{{
+								new BehaviorConditional(BT_Conditions::IsFacingEnemy),
+								/*new BehaviorAction(BT_Actions::FaceZombie),*/
+								new BehaviorAction(BT_Actions::Shoot)
+							}},
+							new BehaviorSequence{{
+								new BehaviorConditional(BT_Conditions::IsNotFacingEnemy),
+								new BehaviorAction(BT_Actions::SetAsTarget),
+								new BehaviorAction(BT_Actions::Face)
+							}},
+						}},
 					}},
 					new BehaviorSequence{{
-						new BehaviorAction(BT_Actions::Drop),
-						new BehaviorAction(BT_Actions::Pickup)
+						new BehaviorConditional(BT_Conditions::IsZombieInFOV),
+						new BehaviorConditional(BT_Conditions::IsInHouse),
+						new BehaviorConditional(BT_Conditions::IsPlayerNOTArmed),
+						new BehaviorAction(BT_Actions::AddHouseToVisited),
+						new BehaviorAction(BT_Actions::SetRunAsTarget),
+						new BehaviorAction(BT_Actions::RunForestRun)
 					}},
-					/*new BehaviorSequence{{
-						new BehaviorAction(BT_Actions::AddToMemory)
-					}},*/
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsPlayerBitten),
+						new BehaviorConditional(BT_Conditions::IsPlayerArmed),
+						new BehaviorAction(BT_Actions::Turn)
+					}},
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsPlayerBitten),
+						new BehaviorAction(BT_Actions::RunForestRun)
+					}},
+				}},
+		/************************************************************************/
+		/* Item consumption														*/
+		/************************************************************************/
+		new BehaviorSequence{{
+			new BehaviorConditional(BT_Conditions::IsPlayerLowHealth),
+			new BehaviorConditional(BT_Conditions::CanPlayerHeal),
+			new BehaviorAction(BT_Actions::Heal)
+		}},
+		new BehaviorSequence{{
+			new BehaviorConditional(BT_Conditions::IsPlayerLowStamina),
+			new BehaviorConditional(BT_Conditions::CanPlayerEat),
+			new BehaviorAction(BT_Actions::Eat)
+		}},
+
+
+
+		/************************************************************************/
+		/* Garbage																*/
+		/************************************************************************/
+		new BehaviorSelector{{
+			new BehaviorSequence{{
+				new BehaviorConditional(BT_Conditions::SeesGarbage),
+				new BehaviorSelector{{
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
+						new BehaviorAction(BT_Actions::PickupItem),
+						new BehaviorAction(BT_Actions::Drop)
+					}},
+					new BehaviorSequence{{
+						new BehaviorAction(BT_Actions::SetItemAsTarget),
+						new BehaviorAction(BT_Actions::Seek),
+					}},
 				}},
 			}},
-			
+		}},
+		/************************************************************************/
+		/* Items																*/
+		/************************************************************************/
+		new BehaviorSequence{{
+			new BehaviorConditional(BT_Conditions::SeesItem),
+			new BehaviorSelector{{
+					// Consume food before picking up more
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsItemFood),
+						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
+						new BehaviorConditional(BT_Conditions::CanPlayerEat),
+						new BehaviorAction(BT_Actions::Eat)
+					}},
+					// Pick item if has inventory slot and in range
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
+						new BehaviorConditional(BT_Conditions::HasInventorySlot),
+						new BehaviorAction(BT_Actions::PickupItem),
+					}},
+					// If player has no inventory slot available
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::IsPlayerInGrabRange),
+						new BehaviorAction(BT_Actions::Drop),
+						new BehaviorAction(BT_Actions::PickupItem)
+					}},
+					// Set seen item as target and seek
+					new BehaviorSequence{{
+						new BehaviorAction(BT_Actions::SetItemAsTarget),
+						new BehaviorAction(BT_Actions::Seek)
+					}}
+				}},
+			}},
 			
 			/************************************************************************/
 			/* Sweeping house														*/
@@ -153,21 +181,35 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 			/************************************************************************/
 			new BehaviorSelector{{
 				new BehaviorSequence{{
-					new BehaviorConditional(BT_Conditions::IsHouseInFOV),
-					new BehaviorAction(BT_Actions::Seek)
-				}},
-				new BehaviorSequence{{
 					new BehaviorConditional(BT_Conditions::IsGoingToHouse),
 					new BehaviorAction(BT_Actions::Seek)
 				}},
+				new BehaviorSequence{{
+					new BehaviorConditional(BT_Conditions::IsHouseInFOV),
+					new BehaviorAction(BT_Actions::SetHouseAsActive),
+				}},
 			}},
+
 			/************************************************************************/
 			/* Exploration                                                          */
 			/************************************************************************/
 			new BehaviorSequence{{
-				new BehaviorConditional(BT_Conditions::ShouldExplore),
-				new BehaviorAction(BT_Actions::Explore),
-				new BehaviorAction(BT_Actions::Seek)
+				new BehaviorSelector{{
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::HasVisitedAllLocations),
+						new BehaviorAction(BT_Actions::RandomizeVisitLocations)
+					}},
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::HasReachedExploreLocation),
+						new BehaviorAction(BT_Actions::UpdateExplorationList),
+						new BehaviorAction(BT_Actions::SetNewExploreDestination)
+					}},
+					new BehaviorSequence{{
+						new BehaviorConditional(BT_Conditions::ShouldExplore),
+						new BehaviorAction(BT_Actions::Explore),
+						new BehaviorAction(BT_Actions::Seek)
+					}},
+				}},
 			}},
 		}}
 	);
@@ -186,16 +228,14 @@ void Plugin::Initialize(IBaseInterface* pInterface, PluginInfo& info)
 	GenerateRandomVisitLocations();
 }
 
-//Called only once
 void Plugin::DllInit()
 {
-	//Called when the plugin is loaded
+
 }
 
-//Called only once
 void Plugin::DllShutdown()
 {
-	//Called when the plugin gets unloaded
+
 }
 
 //Called only once, during initialization
@@ -215,7 +255,7 @@ void Plugin::InitGameDebugParams(GameDebugParams& params)
 	params.SpawnPurgeZonesOnMiddleClick = true;
 	params.PrintDebugMessages = true;
 	params.ShowDebugItemNames = true;
-	params.Seed = 0;
+	params.Seed = 69;
 }
 
 //Only Active in DEBUG Mode
@@ -327,84 +367,10 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 	m_pBlackboard->ChangeData(P_KNOWN_HOUSES, knownHouses);
 
 
-	SweepFullMap();
+	//SweepFullMap();
 	ManageBittenTimer(dt);
 	
 	return steering;
-
-//	auto steering = SteeringPlugin_Output();
-//	
-//	//Use the Interface (IAssignmentInterface) to 'interface' with the AI_Framework
-//	auto agentInfo = m_pInterface->Agent_GetInfo();
-//
-//
-//	//Use the navmesh to calculate the next navmesh point
-//	//auto nextTargetPos = m_pInterface->NavMesh_GetClosestPathPoint(checkpointLocation);
-//
-//	//OR, Use the mouse target
-//	auto nextTargetPos = m_pInterface->NavMesh_GetClosestPathPoint(m_Target); //Uncomment this to use mouse position as guidance
-//
-//	m_HousesInPOV = GetHousesInFOV();//uses m_pInterface->Fov_GetHouseByIndex(...)
-//	m_EntitiesInPOV = GetEntitiesInFOV(); //uses m_pInterface->Fov_GetEntityByIndex(...)
-//
-//	for (auto& e : m_EntitiesInPOV)
-//	{
-//		if (e.Type == eEntityType::PURGEZONE)
-//		{
-//			PurgeZoneInfo zoneInfo;
-//			m_pInterface->PurgeZone_GetInfo(e, zoneInfo);
-//			//std::cout << "Purge Zone in FOV:" << e.Location.x << ", "<< e.Location.y << "---Radius: "<< zoneInfo.Radius << std::endl;
-//		}
-//	}
-//
-//	//INVENTORY USAGE DEMO
-//	//********************
-//
-//	if (m_GrabItem)
-//	{
-//		ItemInfo item;
-//		//Item_Grab > When DebugParams.AutoGrabClosestItem is TRUE, the Item_Grab function returns the closest item in range
-//		//Keep in mind that DebugParams are only used for debugging purposes, by default this flag is FALSE
-//		//Otherwise, use GetEntitiesInFOV() to retrieve a vector of all entities in the FOV (EntityInfo)
-//		//Item_Grab gives you the ItemInfo back, based on the passed EntityHash (retrieved by GetEntitiesInFOV)
-//		if (m_pInterface->Item_Grab({}, item))
-//		{
-//			//Once grabbed, you can add it to a specific inventory slot
-//			//Slot must be empty
-//			m_pInterface->Inventory_AddItem(m_InventorySlot, item);
-//		}
-//	}
-//
-//	if (m_UseItem)
-//	{
-//		//Use an item (make sure there is an item at the given inventory slot)
-//		m_pInterface->Inventory_UseItem(m_InventorySlot);
-//	}
-//
-//	if (m_RemoveItem)
-//	{
-//		//Remove an item from a inventory slot
-//		m_pInterface->Inventory_RemoveItem(m_InventorySlot);
-//	}
-//
-//	//Simple Seek Behaviour (towards Target)
-//	steering.LinearVelocity = nextTargetPos - agentInfo.Position; //Desired Velocity
-//	steering.LinearVelocity.Normalize(); //Normalize Desired Velocity
-//	steering.LinearVelocity *= agentInfo.MaxLinearSpeed; //Rescale to Max Speed
-//
-//	if (Distance(nextTargetPos, agentInfo.Position) < 2.f)
-//	{
-//		steering.LinearVelocity = Elite::ZeroVector2;
-//	}
-//
-//	//steering.AngularVelocity = m_AngSpeed; //Rotate your character to inspect the world while walking
-//	steering.AutoOrient = true; //Setting AutoOrient to TRue overrides the AngularVelocity
-//
-//	steering.RunMode = m_CanRun; //If RunMode is True > MaxLinSpd is increased for a limited time (till your stamina runs out)
-//
-//	//SteeringPlugin_Output is works the exact same way a SteeringBehaviour output
-//
-////@End (Demo Purposes)
 }
 
 void Plugin::ManageBittenTimer(float dt)
@@ -477,25 +443,30 @@ void Plugin::GenerateRandomVisitLocations()
 	/************************************************************************/
 	WorldInfo worldInfo = m_pInterface->World_GetInfo();
 
+	// Important houses are only contained within the first 30%
 	float worldMapPercentage = .3f;
-
-	/*while (m_RandomLocationsToVisit.size() < CONFIG_RANDOM_LOCATION_COUNT)
-	{
-		float x = cos(m_Norm(m_Rng)) * worldInfo.Dimensions.x * worldMapPercentage;
-		float y = sin(m_Norm(m_Rng)) * worldInfo.Dimensions.y * worldMapPercentage;
-
-		m_RandomLocationsToVisit.push_back(Elite::Vector2(x, y));
-	}*/
 
 	for (uint32_t i{0}; i <= 360; i += 36)
 	{
+		// Add random points on unit circle to visit.
 		float x = cos((float)i) * worldInfo.Dimensions.x * worldMapPercentage;
 		float y = sin((float)i) * worldInfo.Dimensions.y * worldMapPercentage;
 
-		std::cout << "x: " << x << " y: " << y << std::endl;
-
 		m_RandomLocationsToVisit.push_back(Elite::Vector2(x, y));
 	}
+
+	// shuffle locations
+	std::random_device rd{};
+	std::mt19937 g(rd());
+	std::shuffle(m_RandomLocationsToVisit.begin(), m_RandomLocationsToVisit.end(), g);
+
+	// Reserve visited list to same count as to visit
+	m_RandomLocationsVisited.reserve(m_RandomLocationsToVisit.size());
+
+	// Set blackboard data
+	m_pBlackboard->ChangeData(P_DESTINATION, m_RandomLocationsToVisit[0]);
+	m_pBlackboard->ChangeData(P_EXPLORE_LOCATIONS_TO_VISIT, m_RandomLocationsToVisit);
+	m_pBlackboard->ChangeData(P_EXPLORE_LOCATIONS_VISITED, m_RandomLocationsVisited);
 }
 
 //This function should only be used for rendering debug elements

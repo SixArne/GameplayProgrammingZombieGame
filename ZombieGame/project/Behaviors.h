@@ -5,8 +5,163 @@
 #include "IExamInterface.h"
 #include "Structs.h"
 
+void PrintMessage(std::string message)
+{
+	std::cout << "-----------------------" << "\n";
+	std::cout << message << "\n";
+	std::cout << "-----------------------" << "\n";
+}
+
 namespace BT_Actions
 {
+	BehaviorState SetItemAsTarget(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+
+		blackboard->GetData(P_ITEMS_IN_FOV, items);
+
+
+		const auto item = items->front();
+		
+		blackboard->ChangeData(P_TARGETINFO, item.Location);
+		return BehaviorState::Success;
+	}
+
+	BehaviorState SetHouseAsActive(Blackboard* blackboard)
+	{
+		std::vector<HouseInfo> houses{};
+		std::vector<KnownHouse> knownHouses{};
+		AgentInfo agentInfo{};
+
+		blackboard->GetData(P_HOUSES_IN_FOV, houses);
+		blackboard->GetData(P_PLAYERINFO, agentInfo);
+		blackboard->GetData(P_KNOWN_HOUSES, knownHouses);
+
+		bool housesFound{ houses.size() > 0 };
+		bool shouldCheckoutHouse{};
+
+		auto newHouse = houses[0];
+
+		auto foundIt = std::find_if(knownHouses.begin(), knownHouses.end(), [newHouse](KnownHouse house) {
+			float distance = Elite::Distance(house.housePosition, newHouse.Center);
+			return distance <= FLT_EPSILON;
+			});
+
+		// Found
+		if (foundIt != knownHouses.end())
+		{
+			KnownHouse house = *foundIt;
+
+			if (house.lastSweepTime >= CONFIG_SWEEP_MAX_TIMEOUT)
+			{
+				shouldCheckoutHouse = true;
+			}
+		}
+		else
+		{
+			shouldCheckoutHouse = true;
+		}
+
+		if (shouldCheckoutHouse)
+		{
+			// stop spinning like a silly geese
+			blackboard->ChangeData(P_IS_IN_HOUSE, true);
+
+			blackboard->ChangeData(P_TARGETINFO, houses[0].Center);
+			blackboard->ChangeData(P_SHOULDEXPLORE, false);
+
+			// Set last position to later exit house
+			blackboard->ChangeData(P_LAST_POSITION, agentInfo.Position);
+			blackboard->ChangeData(P_ACTIVE_HOUSE, houses[0]);
+
+			// In rare scenarios the turn of the agent is to sharp and it escapes the behaviortree
+			blackboard->ChangeData(P_IS_GOING_FOR_HOUSE, true);
+		}
+		else
+		{
+			return BehaviorState::Failure;
+		}
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState RandomizeVisitLocations(Blackboard* blackboard)
+	{
+		std::vector<Elite::Vector2> locationsToVisit{};
+		std::vector<Elite::Vector2> locationsVisited{};
+
+		blackboard->GetData(P_EXPLORE_LOCATIONS_TO_VISIT, locationsToVisit);
+		blackboard->GetData(P_EXPLORE_LOCATIONS_VISITED, locationsVisited);
+
+		for (auto& loc : locationsVisited)
+		{
+			locationsToVisit.emplace_back(loc);
+		}
+
+		// shuffle
+		std::random_device rd{};
+		std::mt19937 g(rd());
+		std::shuffle(locationsToVisit.begin(), locationsToVisit.end(), g);
+
+		// clear visited
+		locationsVisited.clear();
+
+		// update blackboard
+		blackboard->ChangeData(P_EXPLORE_LOCATIONS_TO_VISIT, locationsToVisit);
+		blackboard->ChangeData(P_EXPLORE_LOCATIONS_VISITED, locationsVisited);
+		blackboard->ChangeData(P_DESTINATION, locationsToVisit[0]);
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState UpdateExplorationList(Blackboard* blackboard)
+	{
+		std::vector<Elite::Vector2> locationsToVisit{};
+		std::vector<Elite::Vector2> locationsVisited{};
+		AgentInfo playerInfo{};
+	
+		blackboard->GetData(P_EXPLORE_LOCATIONS_TO_VISIT, locationsToVisit);
+		blackboard->GetData(P_EXPLORE_LOCATIONS_VISITED, locationsVisited);
+		blackboard->GetData(P_PLAYERINFO, playerInfo);
+
+		// Get reached element location
+		auto closestLocIt = std::find_if(locationsToVisit.begin(), locationsToVisit.end(), [playerInfo](Elite::Vector2 loc) {
+			return Elite::DistanceSquared(playerInfo.Position, loc) <= CONFIG_HAS_REACHED_DESTINATION * CONFIG_HAS_REACHED_DESTINATION;
+		});
+
+		// catch if location wouldn't exist == should not be possible
+		if (closestLocIt == locationsToVisit.end())
+		{
+			throw std::runtime_error("Closest location not found");
+		}
+
+		// place in visited
+		locationsVisited.emplace_back(*closestLocIt);
+
+		// remove from todo
+		auto toRemove = std::remove(locationsToVisit.begin(), locationsToVisit.end(), *closestLocIt);
+		locationsToVisit.erase(toRemove);
+
+		// Update blackboard
+		blackboard->ChangeData(P_EXPLORE_LOCATIONS_TO_VISIT, locationsToVisit);
+		blackboard->ChangeData(P_EXPLORE_LOCATIONS_VISITED, locationsVisited);
+
+		return BehaviorState::Success;
+	}
+
+	BehaviorState SetNewExploreDestination(Blackboard* blackboard)
+	{
+		std::vector<Elite::Vector2> locationsToVisit{};
+
+		blackboard->GetData(P_EXPLORE_LOCATIONS_TO_VISIT, locationsToVisit);
+
+		auto newLocation = locationsToVisit[locationsToVisit.size() - 1];
+
+		blackboard->ChangeData(P_DESTINATION, newLocation);
+
+		return BehaviorState::Success;
+	}
+
 	BehaviorState AddHouseToVisited(Blackboard* blackboard)
 	{
 		std::vector<KnownHouse> knownHouses{};
@@ -85,6 +240,47 @@ namespace BT_Actions
 		return BehaviorState::Success;
 	}
 
+	BehaviorState PickupItem(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		Inventory inventory{};
+		IExamInterface* examInterface{};
+
+		blackboard->GetData(P_ITEMS_IN_FOV, items);
+		blackboard->GetData(P_INVENTORY, inventory);
+		blackboard->GetData(P_INTERFACE, examInterface);
+
+		// get first item
+		auto item = items->front();
+
+		// get item info
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(item, itemInfo);
+
+		// early exit if not item OR garbage
+		if (!isItem || itemInfo.Type == eItemType::GARBAGE)
+		{
+			return BehaviorState::Failure;
+		}
+		
+		const auto canGrab = examInterface->Item_Grab(item, itemInfo);
+		if (!canGrab)
+		{
+			return BehaviorState::Failure;
+			PrintMessage("Not close enough to grab item, consider placing this after inRange");
+		}
+
+		// Add item
+		UINT slot = inventory.HasEmptySlot();
+		examInterface->Inventory_AddItem(slot, itemInfo);
+
+		// Add item and occupy slot
+		inventory.FillSlot(slot, itemInfo);
+		blackboard->ChangeData(P_INVENTORY, inventory);
+
+		return BehaviorState::Success;
+	}
+
 	BehaviorState Pickup(Blackboard* blackboard)
 	{
 		std::vector<EntityInfo>* items{};
@@ -93,50 +289,56 @@ namespace BT_Actions
 		Inventory inventory{};
 		Elite::Vector2 targetInfo{};
 
-		bool dataFound =
-			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
-			blackboard->GetData(P_INTERFACE, examInterface) &&
-			blackboard->GetData(P_INVENTORY, inventory) &&
-			blackboard->GetData(P_PLAYERINFO, agentInfo) &&
-			blackboard->GetData(P_TARGETINFO, targetInfo);
+		blackboard->GetData(P_ITEMS_IN_FOV, items);
+		blackboard->GetData(P_INTERFACE, examInterface);
+		blackboard->GetData(P_INVENTORY, inventory);
+		blackboard->GetData(P_PLAYERINFO, agentInfo);
+		blackboard->GetData(P_TARGETINFO, targetInfo);
 
-		if (!dataFound)
-		{
-			return BehaviorState::Failure;
-		}
-
+		// Get empty slot + validate if valid slot
 		UINT slot = inventory.HasEmptySlot();
-
 		if (slot == inventory.slots.size())
 		{
+			throw std::runtime_error("Error, pickup should only be called when slot is available");
 			return BehaviorState::Failure;
 		}
 
-		for (auto& item : *items)
+		// Get item
+		EntityInfo item = items->front();
+
+		// Check if item and fill in details
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(item, itemInfo);
+
+		if (!isItem)
 		{
-			EntityInfo entityToGrab{};
-
-			ItemInfo itemInfo{};
-			bool isItem = examInterface->Item_GetInfo(item, itemInfo);
-
-			if (!isItem)
-				continue;
-
-			// Garbage is handled by different stage
-			if (itemInfo.Type != eItemType::GARBAGE)
+			return BehaviorState::Failure;
+		}
+			
+		// Garbage is handled by different stage
+		if (itemInfo.Type != eItemType::GARBAGE)
+		{
+			// Determine if its worth to pick up item
+			if (!inventory.ShouldPickupItem(examInterface, itemInfo) && itemInfo.Type != eItemType::FOOD)
 			{
-				// Determine if its worth to pick up item
-				if (!inventory.ShouldPickupItem(examInterface, itemInfo))
-				{
-					return BehaviorState::Running;
-				}
-				else
-				{
-					// Delete less amount item
-					UINT slot = inventory.GetSameTypeItemSlot(itemInfo.Type);
+				return BehaviorState::Running;
+			}
+			else
+			{
+				// Delete less amount item
+				UINT slot = inventory.GetSameTypeItemSlot(itemInfo.Type);
 
-					// If slot is valid
-					if (slot != inventory.slots.size())
+				// If slot is valid
+				if (slot != inventory.slots.size())
+				{
+					if (itemInfo.Type == eItemType::FOOD)
+					{
+						inventory.RemoveSlot(slot);
+						examInterface->Inventory_UseItem(slot);
+						blackboard->ChangeData(P_INVENTORY, inventory);
+						PrintMessage("Consumed leftover food to pickup more");
+					}
+					else
 					{
 						// Remove lower grade item
 						inventory.RemoveSlot(slot);
@@ -144,54 +346,56 @@ namespace BT_Actions
 						blackboard->ChangeData(P_INVENTORY, inventory);
 					}
 				}
-
-				// Grab item, if within range
-				const auto maxGrabRange = agentInfo.GrabRange;
-				const auto grabRange = Elite::DistanceSquared(item.Location, agentInfo.Position);
-
-				if (grabRange < maxGrabRange * maxGrabRange)
-				{
-					if (const auto canGrab = examInterface->Item_Grab(item, itemInfo))
-					{
-						if (!canGrab)
-						{
-							std::cout << "error grabbing item" << std::endl;
-						}
-					}
-
-					// Add item
-					examInterface->Inventory_AddItem(slot, itemInfo);
-
-					// Add item and occupy slot
-					inventory.FillSlot(slot, itemInfo);
-					blackboard->ChangeData(P_INVENTORY, inventory);
-
-					return BehaviorState::Success;
-				}
-				else
-				{
-					// Not close so set location and let seek handle movement
-					targetInfo = item.Location;
-				}
 			}
-			// Garbage
-			else
-			{
-				// Grab item, if within range
-				const auto maxGrabRange = agentInfo.GrabRange;
-				const auto grabRange = Elite::DistanceSquared(itemInfo.Location, agentInfo.Position);
-				if (grabRange < maxGrabRange * maxGrabRange && examInterface->Item_Grab(item, itemInfo))
-				{
-					// Add item
-					examInterface->Inventory_AddItem(slot, itemInfo);
 
-					// Add item and occupy slot
-					inventory.FillSlot(slot, itemInfo);
-					blackboard->ChangeData(P_INVENTORY, inventory);
+			// Grab item, if within range
+			const auto maxGrabRange = agentInfo.GrabRange;
+			const auto grabRange = Elite::DistanceSquared(item.Location, agentInfo.Position);
+
+			if (grabRange < maxGrabRange * maxGrabRange)
+			{
+				if (const auto canGrab = examInterface->Item_Grab(item, itemInfo))
+				{
+					if (!canGrab)
+					{
+						std::cout << "error grabbing item" << std::endl;
+					}
 				}
+
+				// Add item
+				examInterface->Inventory_AddItem(slot, itemInfo);
+
+				// Add item and occupy slot
+				inventory.FillSlot(slot, itemInfo);
+				blackboard->ChangeData(P_INVENTORY, inventory);
 
 				return BehaviorState::Success;
 			}
+			else
+			{
+				// Not close so set location and let seek handle movement
+				targetInfo = item.Location;
+				blackboard->ChangeData(P_TARGETINFO, targetInfo);
+				return BehaviorState::Running;
+			}
+		}
+		// Garbage
+		else
+		{
+			// Grab item, if within range
+			const auto maxGrabRange = agentInfo.GrabRange;
+			const auto grabRange = Elite::DistanceSquared(itemInfo.Location, agentInfo.Position);
+			if (grabRange < maxGrabRange * maxGrabRange && examInterface->Item_Grab(item, itemInfo))
+			{
+				// Add item
+				examInterface->Inventory_AddItem(slot, itemInfo);
+
+				// Add item and occupy slot
+				inventory.FillSlot(slot, itemInfo);
+				blackboard->ChangeData(P_INVENTORY, inventory);
+			}
+
+			return BehaviorState::Success;
 		}
 
 		blackboard->ChangeData(P_TARGETINFO, targetInfo);
@@ -583,65 +787,15 @@ namespace BT_Conditions
 	bool IsHouseInFOV(Blackboard* blackboard)
 	{
 		std::vector<HouseInfo> houses{};
-		std::vector<KnownHouse> knownHouses{};
-		AgentInfo agentInfo{};
 
-		bool dataFound = blackboard->GetData(P_HOUSES_IN_FOV, houses) &&
-			blackboard->GetData(P_PLAYERINFO, agentInfo) &&
-			blackboard->GetData(P_KNOWN_HOUSES, knownHouses);
+		bool dataFound = blackboard->GetData(P_HOUSES_IN_FOV, houses);
 
 		if (!dataFound)
 		{
 			return false;
 		}
 
-
-		bool housesFound{ houses.size() > 0 };
-		bool shouldCheckoutHouse{};
-
-		if (housesFound)
-		{
-
-			auto newHouse = houses[0];
-
-			auto foundIt = std::find_if(knownHouses.begin(), knownHouses.end(), [newHouse](KnownHouse house) {
-				float distance = Elite::Distance(house.housePosition, newHouse.Center);
-				return distance <= FLT_EPSILON;
-				});
-
-			// Found
-			if (foundIt != knownHouses.end())
-			{
-				KnownHouse house = *foundIt;
-
-				if (house.lastSweepTime >= CONFIG_SWEEP_MAX_TIMEOUT)
-				{
-					shouldCheckoutHouse = true;
-				}
-			}
-			else
-			{
-				shouldCheckoutHouse = true;
-			}
-		}
-
-		if (shouldCheckoutHouse)
-		{
-			// stop spinning like a silly geese
-			blackboard->ChangeData(P_IS_IN_HOUSE, true);
-
-			blackboard->ChangeData(P_TARGETINFO, houses[0].Center);
-			blackboard->ChangeData(P_SHOULDEXPLORE, false);
-
-			// Set last position to later exit house
-			blackboard->ChangeData(P_LAST_POSITION, agentInfo.Position);
-			blackboard->ChangeData(P_ACTIVE_HOUSE, houses[0]);
-
-			// In rare scenarios the turn of the agent is to sharp and it escapes the behaviortree
-			blackboard->ChangeData(P_IS_GOING_FOR_HOUSE, true);
-		}
-
-		return shouldCheckoutHouse;
+		return houses.size() > 0;
 	}
 
 	bool IsInHouse(Blackboard* blackboard)
@@ -746,6 +900,15 @@ namespace BT_Conditions
 			blackboard->GetData(P_INTERFACE, examInterface);
 
 		if (!dataFound || items->size() == 0)
+		{
+			return false;
+		}
+
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(items->front(), itemInfo);
+
+		// NOT AN ITEM
+		if (!isItem)
 		{
 			return false;
 		}
@@ -1015,5 +1178,107 @@ namespace BT_Conditions
 			accuracyMargin = 0.00001f;
 		}
 		return !Elite::AreEqual(dotResult, 1.0f, accuracyMargin);
+	}
+
+	bool HasReachedExploreLocation(Blackboard* blackboard)
+	{
+		Elite::Vector2 destination{};
+		AgentInfo playerInfo{};
+
+		bool hasData = blackboard->GetData(P_DESTINATION, destination)
+			&& blackboard->GetData(P_PLAYERINFO, playerInfo);
+		
+		if (!hasData)
+		{
+			return false;
+		}
+
+		if (Elite::DistanceSquared(destination, playerInfo.Position) <= CONFIG_HAS_REACHED_DESTINATION * CONFIG_HAS_REACHED_DESTINATION)
+		{
+			return true;
+		}
+
+		return false;
+	}
+
+	bool HasVisitedAllLocations(Blackboard* blackboard)
+	{
+		std::vector<Elite::Vector2> locationsToVisit{};
+		std::vector<Elite::Vector2> locationsVisited{};
+
+		bool hasData = blackboard->GetData(P_EXPLORE_LOCATIONS_TO_VISIT, locationsToVisit)
+			&& blackboard->GetData(P_EXPLORE_LOCATIONS_VISITED, locationsVisited);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		if (locationsToVisit.size() == 0)
+		{
+			return true;
+		}
+
+		return false;
+	}
+
+	bool IsPlayerInGrabRange(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		IExamInterface* examInterface{};
+		AgentInfo playerInfo{};
+
+		bool hasData =
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
+			blackboard->GetData(P_INTERFACE, examInterface) &&
+			blackboard->GetData(P_PLAYERINFO, playerInfo);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+
+		const auto item = items->front();
+		const auto maxGrabRange = playerInfo.GrabRange;
+		const auto grabRange = Elite::DistanceSquared(item.Location, playerInfo.Position);
+
+		if (grabRange < maxGrabRange * maxGrabRange)
+		{
+			return true;
+		}
+
+		return false;
+	}
+
+	bool IsItemFood(Blackboard* blackboard)
+	{
+		std::vector<EntityInfo>* items{};
+		IExamInterface* examInterface{};
+
+		bool hasData =
+			blackboard->GetData(P_ITEMS_IN_FOV, items) &&
+			blackboard->GetData(P_INTERFACE, examInterface);
+
+		if (!hasData)
+		{
+			return false;
+		}
+
+		if (items->size() == 0)
+		{
+			PrintMessage("No items in FOV, have you placed this behind a SeesItem cond?");
+			return false;
+		}
+
+		ItemInfo itemInfo{};
+		bool isItem = examInterface->Item_GetInfo(items->front(), itemInfo);
+		if (!isItem)
+		{
+			PrintMessage("Not an item, have you placed this behind a SeesItem cond?");
+			return false;
+		}
+		
+		return itemInfo.Type == eItemType::FOOD;
 	}
 }

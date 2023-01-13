@@ -29,6 +29,8 @@
 #define P_ENEMIES_IN_FOV "enemiesInFOV"
 #define P_ITEMS_IN_FOV "itemsInFOV"
 #define P_IS_IN_HOUSE "isInHouse"
+#define P_EXPLORE_LOCATIONS_TO_VISIT "exploreLocationsToVisit"
+#define P_EXPLORE_LOCATIONS_VISITED "exploreLocationsVisited"
 
 #define CONFIG_SWEEP_MAX_TIMEOUT 50
 #define CONFIG_WANDER_ANGLE 45
@@ -39,6 +41,7 @@
 #define CONFIG_HOUSE_WALL_WIDTH 5
 #define CONFIG_TURN_SPEED 50
 #define CONFIG_BITTEN_REMEMBER_TIME 5
+#define CONFIG_HAS_REACHED_DESTINATION 5
 
 class IBaseInterface;
 class IExamInterface;
@@ -101,6 +104,7 @@ private:
 	std::vector<EntityInfo> m_ItemsInFOV{};
 
 	std::vector<Elite::Vector2> m_RandomLocationsToVisit{};
+	std::vector<Elite::Vector2> m_RandomLocationsVisited{};
 
 	/************************************************************************/
 	/* Custom functions                                                      */
